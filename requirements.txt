@@ -1,0 +1,11 @@
+huggingface_hub
+smolagents
+smolagents[audio]
+openai
+gradio
+duckduckgo-search
+pdfplumber
+anthropic
+docx2txt
+odfpy
+ddgs
