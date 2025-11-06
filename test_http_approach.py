@@ -5,19 +5,22 @@ This approach often works better than gradio_client for local servers.
 
 import requests
 import json
+import uuid
 
 def test_http_gradio_call():
     """Test calling the local Gradio server using direct HTTP requests."""
 
     url = "http://127.0.0.2:7860/api/predict"
 
-    # Prepare the request payload
+    # Prepare the request payload with all required Gradio API fields
     payload = {
         "data": [
             "A warm, lo-fi piano loop",  # prompt
             8,  # duration
             None  # sample (no audio file)
-        ]
+        ],
+        "session_hash": str(uuid.uuid4()),  # Required: unique session identifier
+        "fn_index": 0  # Required: function index (0 for first/only function)
     }
 
     print("Testing HTTP request to local Gradio server...")

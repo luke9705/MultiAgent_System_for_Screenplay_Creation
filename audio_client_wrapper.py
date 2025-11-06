@@ -8,6 +8,7 @@ import json
 import numpy as np
 from typing import Optional, Tuple
 import gradio as gr
+import uuid
 
 
 class LocalAudioClient:
@@ -16,6 +17,7 @@ class LocalAudioClient:
     def __init__(self, server_url: str = "http://127.0.0.2:7860"):
         self.server_url = server_url.rstrip("/")
         self.api_url = f"{self.server_url}/api/predict"
+        self.session_hash = str(uuid.uuid4())  # Generate a unique session ID
 
     def generate_audio(
         self,
@@ -35,13 +37,15 @@ class LocalAudioClient:
             Tuple of (sample_rate, audio_data) where audio_data is a numpy array
         """
 
-        # Prepare the request payload
+        # Prepare the request payload with required Gradio API fields
         payload = {
             "data": [
                 prompt,
                 duration,
                 sample_audio  # Can be None or a file path
-            ]
+            ],
+            "session_hash": self.session_hash,
+            "fn_index": 0  # First (and only) function in the interface
         }
 
         try:
