@@ -112,6 +112,17 @@ class LocalAudioClient:
             Gradio Audio component with the generated audio
         """
         audio_data = self.generate_audio(prompt, duration, sample_audio)
+
+        # Handle case where server returns a file path dictionary
+        if isinstance(audio_data, dict) and "name" in audio_data:
+            # If it's a file path dictionary, use the file path directly
+            file_path = audio_data.get("name")
+            if file_path:
+                return gr.Audio(value=file_path)
+            else:
+                raise ValueError(f"Audio file path is missing in response: {audio_data}")
+
+        # Otherwise, it should be a tuple (sample_rate, audio_array)
         return gr.Audio(value=audio_data)
 
 

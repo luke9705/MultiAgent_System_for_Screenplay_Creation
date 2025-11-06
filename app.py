@@ -379,16 +379,7 @@ def initialize_agent():
 ## gradio interface
 description = textwrap.dedent("""**Scriptura** is a multi-agent AI framework based on HF-SmolAgents that streamlines the creation of screenplays, storyboards, 
 and soundtracks by automating the stages of analysis, summarization, and multimodal enrichment, freeing authors to focus on pure creativity.
-At its heart:
-- **A big model, like DeepSeek R1 or GPT 4.1**, serves as the primary orchestrating agent, coordinating workflows and managing high-level reasoning across the system.
-- **Gemma-3-27B-IT** acts as a specialized assistant for multimodal tasks, supporting both text and image inputs to refine narrative elements and prepare them for downstream generation.
-                    
-For media generation, Scriptura integrates:
-- **MusicGen** models (per the AudioCraft MusicGen specification), deployed via Hugging Face Spaces, 
-enabling the agent to produce original soundtracks and sound effects from text prompts or combined text + audio samples.
-- **FLUX (black-forest-labs/FLUX.1-dev)** for on-the-fly image creation, ideal for storyboards, concept art, and 
-visual references that seamlessly tie into the narrative flow.
-
+    
 To view the presentation **video**, click [here](https://www.youtube.com/watch?v=I0201ruB1Uo&ab_channel=3DLabFactory) 🤓
 """)
                     
