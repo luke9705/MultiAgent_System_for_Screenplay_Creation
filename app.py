@@ -1,4 +1,5 @@
 import gradio as gr
+from gradio import ChatMessage
 import os
 import base64
 import pandas as pd
@@ -348,29 +349,36 @@ class Agent:
 
 
 ## gradio functions
-async def respond(message: dict, history : list, web_search: bool = False, progress=gr.Progress()):
+async def respond(message: dict, history : list, web_search: bool = False):
     """
-    Async respond function - shows what the agent did behind the scenes.
+    Async respond function - shows agent progress in real-time in the chat UI.
     """
     global agent
     text = message.get("text", "")
 
-    # Show initial progress
-    progress(0, desc="🚀 Starting agent...")
+    # Create status message that will update in real-time
+    status = ChatMessage(
+        role="assistant",
+        content="🚀 Starting agent...",
+        metadata={"title": "🤖 Agent Status", "status": "pending"}
+    )
 
     # Prepare the agent call parameters
     file = None
     if not message.get("files") and not web_search:
         prompt = text + "\nADDITIONAL CONTRAINT: Don't use web search"
-        progress(0.1, desc="📝 No web search mode")
+        status.content += "\n📝 Mode: No web search"
     elif not message.get("files") and web_search:
         prompt = text
-        progress(0.1, desc="🔍 Web search enabled")
+        status.content += "\n🔍 Mode: Web search enabled"
     else:
         files = message.get("files", [])
         prompt = text if web_search else text + "\nADDITIONAL CONTRAINT: Don't use web search"
         file = load_file(files[0])
-        progress(0.1, desc=f"📁 Processing {Path(files[0]).name}")
+        status.content += f"\n📁 File: {Path(files[0]).name}"
+
+    # Show initial status
+    yield status
 
     # Run agent and track steps
     loop = asyncio.get_event_loop()
@@ -391,69 +399,85 @@ async def respond(message: dict, history : list, web_search: bool = False, progr
         # Start agent in background
         future = loop.run_in_executor(agent.executor, run_agent)
 
-        # Update progress periodically
+        # Update status in real-time as steps happen
         while not future.done():
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.3)
+
             if len(step_log) > last_update[0]:
                 last_update[0] = len(step_log)
-                # Get last step type
-                last_step = step_log[-1]
-                if "Thought" in last_step:
-                    icon = "💭"
-                    desc = "Thinking"
-                elif "Code" in last_step:
-                    icon = "⚙️"
-                    desc = "Running code"
-                elif "Tool" in last_step:
-                    icon = "🔧"
-                    desc = "Using tool"
-                else:
-                    icon = "⏳"
-                    desc = "Processing"
 
-                # Progress as percentage (capped at 90% until done)
-                prog_val = min(0.2 + (len(step_log) * 0.15), 0.9)
-                progress(prog_val, desc=f"{icon} {desc} (step {len(step_log)})")
+                # Build status content showing all steps
+                content_lines = ["🚀 Agent is working...\n"]
+
+                for i, step_type in enumerate(step_log, 1):
+                    if "Thought" in step_type:
+                        icon = "💭"
+                        desc = "Thinking"
+                    elif "Code" in step_type:
+                        icon = "⚙️"
+                        desc = "Running code"
+                    elif "Tool" in step_type:
+                        icon = "🔧"
+                        desc = "Using tool"
+                    else:
+                        icon = "⏳"
+                        desc = "Processing"
+
+                    content_lines.append(f"{i}. {icon} {desc}")
+
+                # Update the same status message
+                status.content = "\n".join(content_lines)
+                yield status
 
         # Get final answer
         final_answer = await future
-        progress(1.0, desc="✅ Complete!")
 
-        # Create summary of what happened
+        # Mark status as complete
+        status.metadata["status"] = "done"
+
+        # Add summary to status
         if step_log:
-            summary = "\n\n---\n**Behind the scenes:** "
             step_counts = {}
             for step_type in step_log:
                 step_counts[step_type] = step_counts.get(step_type, 0) + 1
 
-            parts = []
+            summary_parts = []
             for step_type, count in step_counts.items():
                 if "Thought" in step_type:
-                    parts.append(f"💭 Thought ({count})")
+                    summary_parts.append(f"💭 Thought ({count})")
                 elif "Code" in step_type:
-                    parts.append(f"⚙️ Code ({count})")
+                    summary_parts.append(f"⚙️ Code ({count})")
                 elif "Tool" in step_type:
-                    parts.append(f"🔧 Tool ({count})")
+                    summary_parts.append(f"🔧 Tool ({count})")
                 else:
-                    parts.append(f"📝 {step_type} ({count})")
+                    summary_parts.append(f"📝 {step_type} ({count})")
 
-            summary += " → ".join(parts) + f" | {len(step_log)} steps"
+            status.content += f"\n\n**Summary:** {' → '.join(summary_parts)}\n✅ Total: {len(step_log)} steps"
 
-            # Append summary to final answer if it's a string
-            if isinstance(final_answer, str):
-                final_answer = final_answer + summary
-            elif isinstance(final_answer, list):
-                # If it's a list, append as a text item
-                final_answer.append(summary)
+        yield status
 
-        return final_answer
+        # Return final answer as a separate message
+        if isinstance(final_answer, str):
+            yield ChatMessage(role="assistant", content=final_answer)
+        elif isinstance(final_answer, list):
+            # If it's a list of components, yield each
+            for item in final_answer:
+                if isinstance(item, str):
+                    yield ChatMessage(role="assistant", content=item)
+                else:
+                    yield item
+        else:
+            yield final_answer
 
     except Exception as e:
-        progress(1.0, desc="❌ Error")
+        status.metadata["status"] = "done"
+        status.content += f"\n\n❌ Error occurred"
+        yield status
+
         print(f"ERROR: {e}")
         import traceback
         traceback.print_exc()
-        return f"❌ Error: {str(e)}"
+        yield ChatMessage(role="assistant", content=f"❌ Error: {str(e)}")
 
 def initialize_agent():
     agent = Agent()
@@ -475,7 +499,7 @@ demo = gr.ChatInterface(
                     multimodal=True,
                     title='Scriptura: A MultiAgent System for Screenplay Creation and Editing 🎞️',
                     description=description,
-                    show_progress='full',  # Show default progress indicator
+                    show_progress='minimal',  # Minimal progress bar since we show status in chat
                     fill_height=True,
                     fill_width=True,
                     save_history=True,
