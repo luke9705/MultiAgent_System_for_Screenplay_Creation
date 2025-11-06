@@ -147,24 +147,30 @@ self.executor = ThreadPoolExecutor(max_workers=20)  # Support 20 concurrent user
 - Monitor your server's resources under load
 - Balance between concurrency and resource usage
 
-### Gradio Queue Configuration
+### Gradio Queue Configuration ⚠️ CRITICAL
 
-The existing `.queue()` in [app.py](app.py:395) works with async functions:
+**IMPORTANT:** The `.queue()` configuration in [app.py](app.py:419-422) is essential for concurrency:
 
 ```python
 demo = gr.ChatInterface(
-    fn=respond,  # Now async!
+    fn=respond,  # Async function
     # ... other config ...
-).queue()
-```
-
-You can add additional queue parameters if needed:
-```python
-.queue(
-    max_size=50,           # Max queue size
-    concurrency_count=10   # Max concurrent executions (matches thread pool)
+).queue(
+    max_size=100,                     # Maximum queue size (pending requests)
+    default_concurrency_limit=10      # CRITICAL: Enables 10 concurrent executions
 )
 ```
+
+**Without `default_concurrency_limit`, requests are processed SEQUENTIALLY even with async functions!**
+
+This parameter must match your ThreadPoolExecutor's `max_workers`:
+- ThreadPoolExecutor: `max_workers=10` (line 295)
+- Queue: `default_concurrency_limit=10` (line 421)
+
+To adjust concurrency capacity:
+1. Change `max_workers` in Agent.__init__()
+2. Change `default_concurrency_limit` in .queue()
+3. Both values should be identical
 
 ## Testing Concurrency
 

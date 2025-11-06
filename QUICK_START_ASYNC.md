@@ -28,18 +28,29 @@ This will simulate 3 concurrent users and show you the performance improvement.
 
 ## Configuration
 
-### Adjust concurrent user capacity:
+### Adjust concurrent user capacity (TWO places required):
 
-In [app.py](app.py:298), modify:
+**1. ThreadPoolExecutor in [app.py](app.py:295):**
 
 ```python
 self.executor = ThreadPoolExecutor(max_workers=10)  # Change this number
 ```
 
+**2. Gradio Queue in [app.py](app.py:419-422):**
+
+```python
+.queue(
+    max_size=100,
+    default_concurrency_limit=10  # MUST match max_workers above!
+)
+```
+
+**⚠️ CRITICAL:** Both values must be identical, or you'll get sequential processing!
+
 **Recommendations:**
-- Small deployments: `max_workers=5`
-- Medium deployments: `max_workers=10-15`
-- Large deployments: `max_workers=20-30`
+- Small deployments: Both = `5`
+- Medium deployments: Both = `10-15`
+- Large deployments: Both = `20-30`
 
 ## Key Files Modified
 

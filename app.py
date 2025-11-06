@@ -416,7 +416,10 @@ demo = gr.ChatInterface(
                                 render=False),
                             ],   
                     additional_inputs_accordion=gr.Accordion(label="Tools available: ", open=True, render=False)
-                        ).queue()
+                        ).queue(
+                            max_size=100,            # Maximum queue size (pending requests)
+                            default_concurrency_limit=10  # Match ThreadPoolExecutor max_workers
+                        )
 
 
 if __name__ == "__main__":
