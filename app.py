@@ -356,29 +356,25 @@ async def respond(message: dict, history : list, web_search: bool = False):
     global agent
     text = message.get("text", "")
 
-    # Create status message that will update in real-time
-    status = ChatMessage(
-        role="assistant",
-        content="🚀 Starting agent...",
-        metadata={"title": "🤖 Agent Status", "status": "pending"}
-    )
+    # Build accumulating status message (string-based streaming)
+    status_text = "🤖 **Agent Status**\n\n🚀 Starting...\n"
 
     # Prepare the agent call parameters
     file = None
     if not message.get("files") and not web_search:
         prompt = text + "\nADDITIONAL CONTRAINT: Don't use web search"
-        status.content += "\n📝 Mode: No web search"
+        status_text += "📝 Mode: No web search\n"
     elif not message.get("files") and web_search:
         prompt = text
-        status.content += "\n🔍 Mode: Web search enabled"
+        status_text += "🔍 Mode: Web search enabled\n"
     else:
         files = message.get("files", [])
         prompt = text if web_search else text + "\nADDITIONAL CONTRAINT: Don't use web search"
         file = load_file(files[0])
-        status.content += f"\n📁 File: {Path(files[0]).name}"
+        status_text += f"📁 File: {Path(files[0]).name}\n"
 
-    # Show initial status
-    yield status
+    # Initial yield
+    yield status_text
 
     # Run agent and track steps
     loop = asyncio.get_event_loop()
@@ -406,9 +402,8 @@ async def respond(message: dict, history : list, web_search: bool = False):
             if len(step_log) > last_update[0]:
                 last_update[0] = len(step_log)
 
-                # Build status content showing all steps
-                content_lines = ["🚀 Agent is working...\n"]
-
+                # Build updated status showing all steps
+                step_lines = []
                 for i, step_type in enumerate(step_log, 1):
                     if "Thought" in step_type:
                         icon = "💭"
@@ -423,19 +418,16 @@ async def respond(message: dict, history : list, web_search: bool = False):
                         icon = "⏳"
                         desc = "Processing"
 
-                    content_lines.append(f"{i}. {icon} {desc}")
+                    step_lines.append(f"{i}. {icon} {desc}")
 
-                # Update the same status message
-                status.content = "\n".join(content_lines)
-                yield status
+                # Rebuild complete status text
+                status_text = "🤖 **Agent Status**\n\n" + "\n".join(step_lines)
+                yield status_text
 
         # Get final answer
         final_answer = await future
 
-        # Mark status as complete
-        status.metadata["status"] = "done"
-
-        # Add summary to status
+        # Build final summary
         if step_log:
             step_counts = {}
             for step_type in step_log:
@@ -452,32 +444,25 @@ async def respond(message: dict, history : list, web_search: bool = False):
                 else:
                     summary_parts.append(f"📝 {step_type} ({count})")
 
-            status.content += f"\n\n**Summary:** {' → '.join(summary_parts)}\n✅ Total: {len(step_log)} steps"
-
-        yield status
-
-        # Return final answer as a separate message
-        if isinstance(final_answer, str):
-            yield ChatMessage(role="assistant", content=final_answer)
-        elif isinstance(final_answer, list):
-            # If it's a list of components, yield each
-            for item in final_answer:
-                if isinstance(item, str):
-                    yield ChatMessage(role="assistant", content=item)
-                else:
-                    yield item
+            summary = f"\n\n---\n**Summary:** {' → '.join(summary_parts)}\n✅ Total: {len(step_log)} steps"
         else:
-            yield final_answer
+            summary = ""
+
+        # Return final answer with summary appended
+        if isinstance(final_answer, str):
+            yield final_answer + summary
+        elif isinstance(final_answer, list):
+            # If it's a list, convert to string representation
+            result_text = "\n\n".join(str(item) for item in final_answer)
+            yield result_text + summary
+        else:
+            yield str(final_answer) + summary
 
     except Exception as e:
-        status.metadata["status"] = "done"
-        status.content += f"\n\n❌ Error occurred"
-        yield status
-
         print(f"ERROR: {e}")
         import traceback
         traceback.print_exc()
-        yield ChatMessage(role="assistant", content=f"❌ Error: {str(e)}")
+        yield f"❌ Error: {str(e)}"
 
 def initialize_agent():
     agent = Agent()
