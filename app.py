@@ -250,7 +250,7 @@ def caption_image(img_path: str, prompt: str) -> str:
 ## agent definition
 class Agent:
     def __init__(self, ):
-        #client = HfApiModel("deepseek-ai/DeepSeek-R1-0528", provider="nebius", api_key=os.getenv("NEBIUS_API_KEY"))
+
         client = InferenceClientModel("openai/gpt-oss-20b",
                                       provider="nebius", 
                                       api_key=os.getenv("NEBIUS_API_KEY"))
@@ -282,8 +282,8 @@ class Agent:
                    download_images, 
                    transcribe_audio],
             additional_authorized_imports=["pandas", "PIL", "io"],
-            planning_interval=2,
-            max_steps=4,
+            planning_interval=3,
+            max_steps=6,
             stream_outputs=False,
             final_answer_checks=[check_format]
         )
@@ -344,14 +344,7 @@ enabling the agent to produce original soundtracks and sound effects from text p
 - **FLUX (black-forest-labs/FLUX.1-dev)** for on-the-fly image creation, ideal for storyboards, concept art, and 
 visual references that seamlessly tie into the narrative flow.
 
-Optionally, Scriptura can query external sources (e.g., via a DuckDuckGo API integration) to pull in reference scripts, sound samples, or research materials, 
-ensuring that every draft is not only creatively rich but also contextually informed.
-
-To view the presentation **video**, click [here](https://www.youtube.com/watch?v=I0201ruB1Uo&ab_channel=3DLabFactory)
-
-For more information: [README.md](https://huggingface.co/spaces/Lab9705/MultiAgent_System_for_Screenplay_Creation/blob/main/README.md)
-
-**Important**: if you’re interested in trying the sound generation feature, please open a discussion to request that we restart our custom space. We have limited credits, so we appreciate your understanding 🤓
+To view the presentation **video**, click [here](https://www.youtube.com/watch?v=I0201ruB1Uo&ab_channel=3DLabFactory) 🤓
 """)
                     
 # global agent 
