@@ -352,42 +352,33 @@ class Agent:
 async def respond(message: dict, history : list, web_search: bool = False):
     """
     Async respond function - shows agent progress in real-time in the chat UI.
+    Streams the actual content of each step (thoughts, code, tool outputs).
     """
     global agent
     text = message.get("text", "")
-
-    # Build accumulating status message (string-based streaming)
-    status_text = "🤖 **Agent Status**\n\n🚀 Starting...\n"
 
     # Prepare the agent call parameters
     file = None
     if not message.get("files") and not web_search:
         prompt = text + "\nADDITIONAL CONTRAINT: Don't use web search"
-        status_text += "📝 Mode: No web search\n"
     elif not message.get("files") and web_search:
         prompt = text
-        status_text += "🔍 Mode: Web search enabled\n"
     else:
         files = message.get("files", [])
         prompt = text if web_search else text + "\nADDITIONAL CONTRAINT: Don't use web search"
         file = load_file(files[0])
-        status_text += f"📁 File: {Path(files[0]).name}\n"
 
-    # Initial yield
-    yield status_text
-
-    # Run agent and track steps
+    # Run agent and track steps with their actual content
     loop = asyncio.get_event_loop()
-    step_log = []
+    step_contents = []  # Store actual step objects/content
     last_update = [0]
 
     def run_agent():
-        """Run agent and log all steps"""
+        """Run agent and capture all steps"""
         result = None
         for step in agent.agent.run(prompt, images=None, additional_args={"files": file, "conversation_history": history}):
-            step_type = type(step).__name__
-            step_log.append(step_type)
-            print(f"[{len(step_log)}] {step_type}")
+            step_contents.append(step)
+            print(f"[{len(step_contents)}] {type(step).__name__}")
             result = step
         return result
 
@@ -395,68 +386,88 @@ async def respond(message: dict, history : list, web_search: bool = False):
         # Start agent in background
         future = loop.run_in_executor(agent.executor, run_agent)
 
-        # Update status in real-time as steps happen
+        # Update with real-time streaming of actual step content
         while not future.done():
-            await asyncio.sleep(0.3)
+            await asyncio.sleep(0.2)
 
-            if len(step_log) > last_update[0]:
-                last_update[0] = len(step_log)
+            if len(step_contents) > last_update[0]:
+                last_update[0] = len(step_contents)
 
-                # Build updated status showing all steps
-                step_lines = []
-                for i, step_type in enumerate(step_log, 1):
+                # Build the full output showing actual step content
+                output_text = "🤖 **Agent Working...**\n\n"
+
+                for i, step in enumerate(step_contents, 1):
+                    step_type = type(step).__name__
+
                     if "Thought" in step_type:
-                        icon = "💭"
-                        desc = "Thinking"
+                        # Extract the actual thought text
+                        thought_text = getattr(step, 'thought', None) or getattr(step, 'text', str(step))
+                        output_text += f"💭 **Thought {i}:**\n{thought_text}\n\n"
+
                     elif "Code" in step_type:
-                        icon = "⚙️"
-                        desc = "Running code"
+                        # Extract the actual code being executed
+                        code_text = getattr(step, 'code', None) or getattr(step, 'action', str(step))
+                        output_text += f"⚙️ **Code {i}:**\n```python\n{code_text}\n```\n\n"
+
                     elif "Tool" in step_type:
-                        icon = "🔧"
-                        desc = "Using tool"
+                        # Extract tool call details
+                        tool_name = getattr(step, 'tool_name', 'Unknown Tool')
+                        tool_args = getattr(step, 'tool_args', {})
+                        output_text += f"🔧 **Tool {i}:** {tool_name}\n"
+                        if tool_args:
+                            output_text += f"_Args:_ {tool_args}\n\n"
+
+                    elif "Action" in step_type:
+                        # Handle action steps
+                        action_text = getattr(step, 'action', None) or str(step)
+                        output_text += f"⚡ **Action {i}:**\n{action_text}\n\n"
+
+                    elif "Observation" in step_type or "Output" in step_type:
+                        # Handle observation/output steps
+                        obs_text = getattr(step, 'observation', None) or getattr(step, 'output', str(step))
+                        # Truncate long observations
+                        if len(str(obs_text)) > 500:
+                            obs_text = str(obs_text)[:500] + "..."
+                        output_text += f"📊 **Output {i}:**\n{obs_text}\n\n"
+
                     else:
-                        icon = "⏳"
-                        desc = "Processing"
+                        # Fallback for unknown step types
+                        output_text += f"⏳ **Step {i} ({step_type}):**\n{str(step)[:300]}\n\n"
 
-                    step_lines.append(f"{i}. {icon} {desc}")
-
-                # Rebuild complete status text
-                status_text = "🤖 **Agent Status**\n\n" + "\n".join(step_lines)
-                yield status_text
+                output_text += "---\n_Processing..._"
+                yield output_text
 
         # Get final answer
         final_answer = await future
 
-        # Build final summary
-        if step_log:
-            step_counts = {}
-            for step_type in step_log:
-                step_counts[step_type] = step_counts.get(step_type, 0) + 1
+        # Build final output with complete log
+        output_text = "🤖 **Agent Complete!**\n\n"
 
-            summary_parts = []
-            for step_type, count in step_counts.items():
-                if "Thought" in step_type:
-                    summary_parts.append(f"💭 Thought ({count})")
-                elif "Code" in step_type:
-                    summary_parts.append(f"⚙️ Code ({count})")
-                elif "Tool" in step_type:
-                    summary_parts.append(f"🔧 Tool ({count})")
-                else:
-                    summary_parts.append(f"📝 {step_type} ({count})")
+        # Show abbreviated log
+        for i, step in enumerate(step_contents, 1):
+            step_type = type(step).__name__
+            if "Thought" in step_type:
+                output_text += f"💭 Step {i}: Thought\n"
+            elif "Code" in step_type:
+                output_text += f"⚙️ Step {i}: Code execution\n"
+            elif "Tool" in step_type:
+                tool_name = getattr(step, 'tool_name', 'Tool')
+                output_text += f"🔧 Step {i}: {tool_name}\n"
+            else:
+                output_text += f"📝 Step {i}: {step_type}\n"
 
-            summary = f"\n\n---\n**Summary:** {' → '.join(summary_parts)}\n✅ Total: {len(step_log)} steps"
-        else:
-            summary = ""
+        output_text += f"\n✅ Total steps: {len(step_contents)}\n\n---\n\n"
+        output_text += "📋 **Final Answer:**\n\n"
 
-        # Return final answer with summary appended
+        # Append final answer
         if isinstance(final_answer, str):
-            yield final_answer + summary
+            output_text += final_answer
         elif isinstance(final_answer, list):
-            # If it's a list, convert to string representation
-            result_text = "\n\n".join(str(item) for item in final_answer)
-            yield result_text + summary
+            output_text += "\n\n".join(str(item) for item in final_answer)
         else:
-            yield str(final_answer) + summary
+            output_text += str(final_answer)
+
+        yield output_text
 
     except Exception as e:
         print(f"ERROR: {e}")
