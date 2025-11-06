@@ -311,8 +311,8 @@ class Agent:
                    download_images,
                    transcribe_audio],
             additional_authorized_imports=["pandas", "PIL", "io"],
-            planning_interval=3,
-            max_steps=6,
+            planning_interval=5,
+            max_steps=5,
             stream_outputs=False,
             final_answer_checks=[check_format]
         )
