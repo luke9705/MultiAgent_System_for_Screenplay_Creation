@@ -6,7 +6,7 @@ from typing import Optional
 from io import BytesIO
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-MODEL = musicgen.MusicGen.get_pretrained("facebook/musicgen-melody", device=DEVICE)
+MODEL = musicgen.MusicGen.get_pretrained("facebook/musicgen-small", device=DEVICE)
 
 # generate function
 def generate_music(prompt: str, duration: int, sample: Optional[tuple[int, np.ndarray]] = None):
