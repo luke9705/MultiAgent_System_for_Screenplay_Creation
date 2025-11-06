@@ -280,7 +280,7 @@ def caption_image(img_path: str, prompt: str) -> str:
 class Agent:
     def __init__(self, ):
 
-        client = InferenceClientModel("openai/gpt-oss-20b",
+        client = InferenceClientModel("Qwen/Qwen3-30B-A3B-Instruct-2507",
                                       provider="nebius",
                                       api_key=os.getenv("NEBIUS_API_KEY"))
 
