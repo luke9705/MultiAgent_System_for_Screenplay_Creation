@@ -357,14 +357,25 @@ async def respond(message: str, history : dict, web_search: bool = False):
     # input
     print("history:", history)
     text = message.get("text", "")
+
+    # Show initial status
+    status_msg = "🤖 Agent is thinking..."
+    yield {"role": "assistant", "content": status_msg}
+
     if not message.get("files") and not web_search: # no files uploaded
         print("No files received.")
-        message = await agent.async_call(text + "\nADDITIONAL CONTRAINT: Don't use web search", conversation_history=history) # conversation_history is a dict with the history of the conversation
+        status_msg += "\n📝 Processing request (no web search)..."
+        yield {"role": "assistant", "content": status_msg}
+        message = await agent.async_call(text + "\nADDITIONAL CONTRAINT: Don't use web search", conversation_history=history)
     elif not message.get("files") and web_search: # no files uploaded
         print("No files received + web search enabled.")
+        status_msg += "\n🔍 Web search enabled - gathering information..."
+        yield {"role": "assistant", "content": status_msg}
         message = await agent.async_call(text, conversation_history=history)
     else:
         files = message.get("files", [])
+        status_msg += f"\n📁 Processing file: {Path(files[0]).name}..."
+        yield {"role": "assistant", "content": status_msg}
         if not web_search:
             file = load_file(files[0])
             message = await agent.async_call(text + "\nADDITIONAL CONTRAINT: Don't use web search", files=file, conversation_history=history)
@@ -375,7 +386,7 @@ async def respond(message: str, history : dict, web_search: bool = False):
     # output
     print("Agent response:", message)
 
-    return message
+    yield message
 
 def initialize_agent():
     agent = Agent()
@@ -385,15 +396,6 @@ def initialize_agent():
 ## gradio interface
 description = textwrap.dedent("""**Scriptura** is a multi-agent AI framework based on HF-SmolAgents that streamlines the creation of screenplays, storyboards, 
 and soundtracks by automating the stages of analysis, summarization, and multimodal enrichment, freeing authors to focus on pure creativity.
-At its heart:
-- **A big model, like DeepSeek R1 or GPT 4.1**, serves as the primary orchestrating agent, coordinating workflows and managing high-level reasoning across the system.
-- **Gemma-3-27B-IT** acts as a specialized assistant for multimodal tasks, supporting both text and image inputs to refine narrative elements and prepare them for downstream generation.
-                    
-For media generation, Scriptura integrates:
-- **MusicGen** models (per the AudioCraft MusicGen specification), deployed via Hugging Face Spaces, 
-enabling the agent to produce original soundtracks and sound effects from text prompts or combined text + audio samples.
-- **FLUX (black-forest-labs/FLUX.1-dev)** for on-the-fly image creation, ideal for storyboards, concept art, and 
-visual references that seamlessly tie into the narrative flow.
 
 To view the presentation **video**, click [here](https://www.youtube.com/watch?v=I0201ruB1Uo&ab_channel=3DLabFactory) 🤓
 """)
