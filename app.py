@@ -148,7 +148,7 @@ def generate_image(prompt: str, neg_prompt: str) -> Image.Image:
         prompt=prompt,
         response_format="b64_json",
         extra_body={
-            "response_extension": "png",<
+            "response_extension": "png",
             "width": 1024,
             "height": 1024,
             "num_inference_steps": 30,
