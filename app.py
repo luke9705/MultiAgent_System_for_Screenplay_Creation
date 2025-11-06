@@ -311,7 +311,7 @@ class Agent:
                    download_images,
                    transcribe_audio],
             additional_authorized_imports=["pandas", "PIL", "io"],
-            planning_interval=5,
+            #planning_interval=5,
             max_steps=5,
             stream_outputs=False,
             final_answer_checks=[check_format]
@@ -327,7 +327,8 @@ class Agent:
                  images: Optional[list[Image.Image]] = None,
                  files: Optional[dict] = None,
                  conversation_history: Optional[dict] = None) -> str:
-        answer = self.agent.run(message, images = images, additional_args={"files": files, "conversation_history": conversation_history})
+        answer = self.agent.run(message, images = images, additional_args={"files": files, "conversation_history": conversation_history}
+                                )
         return answer
 
     async def async_call(self, message: str,
