@@ -356,49 +356,41 @@ async def respond(message: dict, history : list, web_search: bool = False):
     print("=" * 50)
     print("RESPOND FUNCTION CALLED")
     print(f"Message: {message}")
-    print(f"History: {history}")
     print("=" * 50)
-
-    # TEST: Simple progress bar to verify yielding works
-    for i in range(1, 4):
-        yield f"🔄 Starting ({i}/3)..."
-        await asyncio.sleep(0.5)
 
     text = message.get("text", "")
 
     # Prepare the agent call parameters
     file = None
-    status_info = []
+    status_parts = []
 
     if not message.get("files") and not web_search:
         prompt = text + "\nADDITIONAL CONTRAINT: Don't use web search"
-        status_info.append("No web search")
+        status_parts.append("🔧 No web search")
     elif not message.get("files") and web_search:
         prompt = text
-        status_info.append("Web search ON")
+        status_parts.append("🔍 Web search enabled")
     else:
         files = message.get("files", [])
         prompt = text if web_search else text + "\nADDITIONAL CONTRAINT: Don't use web search"
         file = load_file(files[0])
-        status_info.append(f"File: {Path(files[0]).name}")
+        status_parts.append(f"📁 File: {Path(files[0]).name}")
 
-    yield "🤖 Agent is working...\n• " + "\n• ".join(status_info)
-
-    # Run agent and capture streaming steps
+    # Run agent and track steps
     loop = asyncio.get_event_loop()
-    step_count = [0]
+    step_log = []
 
     def run_agent():
-        """Run agent and print all steps"""
+        """Run agent and log all steps"""
         try:
             print("Starting agent.run()...")
             result = None
             for step in agent.agent.run(prompt, images=None, additional_args={"files": file, "conversation_history": history}):
-                step_count[0] += 1
                 step_type = type(step).__name__
-                print(f"[STEP {step_count[0]}] {step_type}: {str(step)[:80]}")
+                step_log.append((len(step_log) + 1, step_type))
+                print(f"[STEP {len(step_log)}] {step_type}")
                 result = step
-            print(f"Agent done: {step_count[0]} steps")
+            print(f"Agent completed with {len(step_log)} steps")
             return result
         except Exception as e:
             print(f"ERROR: {e}")
@@ -407,30 +399,46 @@ async def respond(message: dict, history : list, web_search: bool = False):
             raise
 
     try:
-        # Start agent
+        # Run agent with periodic status updates
         future = loop.run_in_executor(agent.executor, run_agent)
 
-        # Show periodic progress
-        last_count = 0
+        # Show updates every second
+        dots = 0
         while not future.done():
-            await asyncio.sleep(0.5)
-            if step_count[0] > last_count:
-                last_count = step_count[0]
-                yield f"🤖 Agent is working...\n• " + "\n• ".join(status_info) + f"\n• Step {step_count[0]}..."
+            await asyncio.sleep(1.0)
+            dots = (dots + 1) % 4
+            dot_str = "." * dots
+            status_msg = "🤖 **Agent working" + dot_str + "**\n\n" + "\n".join(status_parts)
+            if len(step_log) > 0:
+                status_msg += f"\n\n_Progress: {len(step_log)} step{'s' if len(step_log) != 1 else ''} completed_"
+            yield status_msg
 
-        # Get result
+        # Get final result
         final_answer = await future
 
-        # Show completion
-        yield f"✅ Done! ({step_count[0]} steps)"
-        await asyncio.sleep(0.2)
+        # Show final status with step breakdown
+        status_msg = "🤖 **Processing complete!**\n\n" + "\n".join(status_parts) + f"\n\n**Behind the scenes:**\n"
+
+        # Show step types
+        step_summary = {}
+        for _, step_type in step_log:
+            step_summary[step_type] = step_summary.get(step_type, 0) + 1
+
+        for step_type, count in step_summary.items():
+            icon = "💭" if "Thought" in step_type else "⚙️" if "Code" in step_type else "🔧" if "Tool" in step_type else "📝"
+            status_msg += f"\n• {icon} {step_type}: {count}×"
+
+        status_msg += f"\n\n_Total: {len(step_log)} steps_"
+
+        yield status_msg
+        await asyncio.sleep(0.3)
 
         # Return final answer
         print(f"Final answer type: {type(final_answer)}")
         yield final_answer
 
     except Exception as e:
-        error_msg = f"❌ Error: {str(e)}"
+        error_msg = f"❌ **Error occurred**\n\n{str(e)}"
         print(error_msg)
         yield error_msg
 
@@ -454,20 +462,20 @@ demo = gr.ChatInterface(
                     multimodal=True,
                     title='Scriptura: A MultiAgent System for Screenplay Creation and Editing 🎞️',
                     description=description,
-                    show_progress='full',
+                    show_progress='hidden',  # Changed from 'full' to 'hidden' since we're showing custom progress
                     fill_height=True,
                     fill_width=True,
                     save_history=True,
                     autoscroll=True,
                     additional_inputs=[
-                        gr.Checkbox(value=False, label="Web Search", 
+                        gr.Checkbox(value=False, label="Web Search",
                                 info="Enable web search to find information online. If disabled, the agent will only use the provided files and images.",
                                 render=False),
-                            ],   
+                            ],
                     additional_inputs_accordion=gr.Accordion(label="Tools available: ", open=True, render=False)
                         ).queue(
-                            max_size=100,            # Maximum queue size (pending requests)
-                            default_concurrency_limit=10  # Match ThreadPoolExecutor max_workers
+                            max_size=100,
+                            default_concurrency_limit=10
                         )
 
 
