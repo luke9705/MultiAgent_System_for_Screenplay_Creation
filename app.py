@@ -16,6 +16,9 @@ import numpy as np
 import textwrap
 import docx2txt
 from odf.opendocument import load as load_odt
+import asyncio
+import httpx
+from concurrent.futures import ThreadPoolExecutor
 
 ## utilties and class definition
 def is_image_extension(filename: str) -> bool:
@@ -77,6 +80,32 @@ def check_format(answer: str | list, *args, **kwargs) -> list:
 
 
 ## tools definition
+
+# Async helper functions for improved concurrency (used internally)
+async def _download_image_async(url: str, session: httpx.AsyncClient) -> Optional[Image.Image]:
+    """Helper function to download a single image asynchronously."""
+    try:
+        resp = await session.get(url, timeout=10)
+        resp.raise_for_status()
+        img = Image.open(BytesIO(resp.content)).convert("RGB")
+        return img
+    except Exception as e:
+        print(f"Failed to download from url ({url}): {e}")
+        return None
+
+async def _download_images_async(image_urls: str) -> list:
+    """Async version of download_images for better performance."""
+    urls = [u.strip() for u in image_urls.split(",") if u.strip()]
+    async with httpx.AsyncClient() as session:
+        tasks = [_download_image_async(url, session) for url in urls]
+        images = await asyncio.gather(*tasks)
+
+    wrapped = []
+    for img in images:
+        if img is not None:
+            wrapped.append(gr.Image(value=img))
+    return wrapped
+
 @tool
 def download_images(image_urls: str) -> list:
     """
@@ -252,9 +281,9 @@ class Agent:
     def __init__(self, ):
 
         client = InferenceClientModel("openai/gpt-oss-20b",
-                                      provider="nebius", 
+                                      provider="nebius",
                                       api_key=os.getenv("NEBIUS_API_KEY"))
-        
+
         """client = OpenAIServerModel(
             model_id="claude-opus-4-20250514",
             api_base="https://api.anthropic.com/v1/",
@@ -273,13 +302,13 @@ class Agent:
 
         self.agent = CodeAgent(
             model=client,
-            tools=[DuckDuckGoSearchTool(max_results=5), 
-                   VisitWebpageTool(max_output_length=20000), 
+            tools=[DuckDuckGoSearchTool(max_results=5),
+                   VisitWebpageTool(max_output_length=20000),
                    generate_image,
-                   generate_audio_from_sample, 
-                   generate_audio, 
+                   generate_audio_from_sample,
+                   generate_audio,
                    caption_image,
-                   download_images, 
+                   download_images,
                    transcribe_audio],
             additional_authorized_imports=["pandas", "PIL", "io"],
             planning_interval=3,
@@ -290,40 +319,61 @@ class Agent:
         with open("system_prompt.txt", "r", encoding="utf-8") as f:
             system_prompt = f.read()
             self.agent.prompt_templates["system_prompt"] = system_prompt
-        
 
-    def __call__(self, message: str, 
-                 images: Optional[list[Image.Image]] = None, 
-                 files: Optional[str] = None, 
+        # Thread pool executor for running blocking agent.run() calls
+        self.executor = ThreadPoolExecutor(max_workers=10)
+
+    def __call__(self, message: str,
+                 images: Optional[list[Image.Image]] = None,
+                 files: Optional[dict] = None,
                  conversation_history: Optional[dict] = None) -> str:
         answer = self.agent.run(message, images = images, additional_args={"files": files, "conversation_history": conversation_history})
         return answer
 
+    async def async_call(self, message: str,
+                         images: Optional[list[Image.Image]] = None,
+                         files: Optional[dict] = None,
+                         conversation_history: Optional[dict] = None) -> str:
+        """
+        Async wrapper for agent.run() to handle concurrent requests from multiple users.
+        Runs the blocking agent.run() call in a thread pool executor.
+        """
+        loop = asyncio.get_event_loop()
+        answer = await loop.run_in_executor(
+            self.executor,
+            lambda: self.agent.run(message, images=images, additional_args={"files": files, "conversation_history": conversation_history})
+        )
+        return answer
+
 
 ## gradio functions
-def respond(message: str, history : dict, web_search: bool = False):
+async def respond(message: str, history : dict, web_search: bool = False):
+    """
+    Async respond function that handles multiple concurrent user requests.
+    Each user's request runs in a separate thread via the agent's thread pool executor.
+    """
     global agent
     # input
     print("history:", history)
     text = message.get("text", "")
     if not message.get("files") and not web_search: # no files uploaded
         print("No files received.")
-        message = agent(text + "\nADDITIONAL CONTRAINT: Don't use web search", conversation_history=history) # conversation_history is a dict with the history of the conversation 
+        message = await agent.async_call(text + "\nADDITIONAL CONTRAINT: Don't use web search", conversation_history=history) # conversation_history is a dict with the history of the conversation
     elif not message.get("files") and web_search: # no files uploaded
         print("No files received + web search enabled.")
-        message = agent(text, conversation_history=history)
+        message = await agent.async_call(text, conversation_history=history)
     else:
         files = message.get("files", [])
         if not web_search:
             file = load_file(files[0])
-            message = agent(text + "\nADDITIONAL CONTRAINT: Don't use web search", files=file, conversation_history=history)
+            message = await agent.async_call(text + "\nADDITIONAL CONTRAINT: Don't use web search", files=file, conversation_history=history)
         else:
             file = load_file(files[0])
-            message = agent(text, files=file, conversation_history=history)
-    
+            message = await agent.async_call(text, files=file, conversation_history=history)
+
     # output
     print("Agent response:", message)
-    
+
     return message
 
 def initialize_agent():
