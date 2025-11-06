@@ -20,6 +20,7 @@ from odf.opendocument import load as load_odt
 import asyncio
 import httpx
 from concurrent.futures import ThreadPoolExecutor
+import queue
 
 ## utilties and class definition
 def is_image_extension(filename: str) -> bool:
@@ -368,106 +369,115 @@ async def respond(message: dict, history : list, web_search: bool = False):
         prompt = text if web_search else text + "\nADDITIONAL CONTRAINT: Don't use web search"
         file = load_file(files[0])
 
-    # Run agent and track steps with their actual content
-    loop = asyncio.get_event_loop()
-    step_contents = []  # Store actual step objects/content
-    last_update = [0]
+    # Use a queue to communicate steps from thread to async loop in real-time
+    step_queue = queue.Queue()
+    step_contents = []
 
     def run_agent():
-        """Run agent and capture all steps"""
+        """Run agent and push steps to queue as they happen"""
         result = None
-        for step in agent.agent.run(prompt, images=None, additional_args={"files": file, "conversation_history": history}):
-            step_contents.append(step)
-            print(f"[{len(step_contents)}] {type(step).__name__}")
-            result = step
+        try:
+            for step in agent.agent.run(prompt, images=None, additional_args={"files": file, "conversation_history": history}):
+                step_queue.put(("step", step))
+                print(f"[Step {len(step_contents)+1}] {type(step).__name__}")
+                result = step
+            step_queue.put(("done", result))
+        except Exception as e:
+            step_queue.put(("error", e))
         return result
 
     try:
         # Start agent in background
+        loop = asyncio.get_event_loop()
         future = loop.run_in_executor(agent.executor, run_agent)
 
-        # Update with real-time streaming of actual step content
-        while not future.done():
-            await asyncio.sleep(0.2)
+        # Process steps in real-time as they arrive
+        while True:
+            # Check queue for new steps (non-blocking)
+            try:
+                msg_type, data = step_queue.get_nowait()
 
-            if len(step_contents) > last_update[0]:
-                last_update[0] = len(step_contents)
+                if msg_type == "step":
+                    step_contents.append(data)
 
-                # Build the full output showing actual step content
-                output_text = "🤖 **Agent Working...**\n\n"
+                    # Build the full output showing actual step content
+                    output_text = "🤖 **Agent Working...**\n\n"
 
-                for i, step in enumerate(step_contents, 1):
-                    step_type = type(step).__name__
+                    for i, step in enumerate(step_contents, 1):
+                        step_type = type(step).__name__
 
-                    if "Thought" in step_type:
-                        # Extract the actual thought text
-                        thought_text = getattr(step, 'thought', None) or getattr(step, 'text', str(step))
-                        output_text += f"💭 **Thought {i}:**\n{thought_text}\n\n"
+                        if "Thought" in step_type:
+                            # Extract the actual thought text
+                            thought_text = getattr(step, 'thought', None) or getattr(step, 'text', str(step))
+                            output_text += f"💭 **Thought {i}:**\n{thought_text}\n\n"
 
-                    elif "Code" in step_type:
-                        # Extract the actual code being executed
-                        code_text = getattr(step, 'code', None) or getattr(step, 'action', str(step))
-                        output_text += f"⚙️ **Code {i}:**\n```python\n{code_text}\n```\n\n"
+                        elif "Code" in step_type:
+                            # Extract the actual code being executed
+                            code_text = getattr(step, 'code', None) or getattr(step, 'action', str(step))
+                            output_text += f"⚙️ **Code {i}:**\n```python\n{code_text}\n```\n\n"
 
-                    elif "Tool" in step_type:
-                        # Extract tool call details
-                        tool_name = getattr(step, 'tool_name', 'Unknown Tool')
-                        tool_args = getattr(step, 'tool_args', {})
-                        output_text += f"🔧 **Tool {i}:** {tool_name}\n"
-                        if tool_args:
-                            output_text += f"_Args:_ {tool_args}\n\n"
+                        elif "Tool" in step_type:
+                            # Extract tool call details
+                            tool_name = getattr(step, 'tool_name', 'Unknown Tool')
+                            tool_args = getattr(step, 'tool_args', {})
+                            output_text += f"🔧 **Tool {i}:** {tool_name}\n"
+                            if tool_args:
+                                output_text += f"_Args:_ {tool_args}\n\n"
 
-                    elif "Action" in step_type:
-                        # Handle action steps
-                        action_text = getattr(step, 'action', None) or str(step)
-                        output_text += f"⚡ **Action {i}:**\n{action_text}\n\n"
+                        elif "Action" in step_type:
+                            # Handle action steps
+                            action_text = getattr(step, 'action', None) or str(step)
+                            output_text += f"⚡ **Action {i}:**\n{action_text}\n\n"
 
-                    elif "Observation" in step_type or "Output" in step_type:
-                        # Handle observation/output steps
-                        obs_text = getattr(step, 'observation', None) or getattr(step, 'output', str(step))
-                        # Truncate long observations
-                        if len(str(obs_text)) > 500:
-                            obs_text = str(obs_text)[:500] + "..."
-                        output_text += f"📊 **Output {i}:**\n{obs_text}\n\n"
+                        elif "Observation" in step_type or "Output" in step_type:
+                            # Handle observation/output steps
+                            obs_text = getattr(step, 'observation', None) or getattr(step, 'output', str(step))
+                            # Truncate long observations
+                            if len(str(obs_text)) > 500:
+                                obs_text = str(obs_text)[:500] + "..."
+                            output_text += f"📊 **Output {i}:**\n{obs_text}\n\n"
 
-                    else:
-                        # Fallback for unknown step types
-                        output_text += f"⏳ **Step {i} ({step_type}):**\n{str(step)[:300]}\n\n"
+                        else:
+                            # Fallback for unknown step types
+                            output_text += f"⏳ **Step {i} ({step_type}):**\n{str(step)[:300]}\n\n"
 
-                output_text += "---\n_Processing..._"
-                yield output_text
+                    output_text += "---\n_Processing..._"
+                    yield output_text
 
-        # Get final answer
-        final_answer = await future
+                elif msg_type == "done":
+                    final_answer = data
+                    break
 
-        # Build final output with complete log
-        output_text = "🤖 **Agent Complete!**\n\n"
+                elif msg_type == "error":
+                    raise data
 
-        # Show abbreviated log
-        for i, step in enumerate(step_contents, 1):
-            step_type = type(step).__name__
-            if "Thought" in step_type:
-                output_text += f"💭 Step {i}: Thought\n"
-            elif "Code" in step_type:
-                output_text += f"⚙️ Step {i}: Code execution\n"
-            elif "Tool" in step_type:
-                tool_name = getattr(step, 'tool_name', 'Tool')
-                output_text += f"🔧 Step {i}: {tool_name}\n"
-            else:
-                output_text += f"📝 Step {i}: {step_type}\n"
+            except queue.Empty:
+                # No new steps, wait a bit
+                await asyncio.sleep(0.1)
 
-        output_text += f"\n✅ Total steps: {len(step_contents)}\n\n---\n\n"
-        output_text += "📋 **Final Answer:**\n\n"
+                # Check if agent finished
+                if future.done():
+                    # Drain any remaining steps
+                    while not step_queue.empty():
+                        msg_type, data = step_queue.get_nowait()
+                        if msg_type == "step":
+                            step_contents.append(data)
+                        elif msg_type == "done":
+                            final_answer = data
+                    break
 
-        # Append final answer
-        if isinstance(final_answer, str):
-            output_text += final_answer
-        elif isinstance(final_answer, list):
-            output_text += "\n\n".join(str(item) for item in final_answer)
+        # Wait for agent to complete if not already done
+        if not future.done():
+            await future
+
+        # Return final answer directly (preserve Gradio components like images)
+        # Don't wrap in text if it's already a list of components
+        if isinstance(final_answer, list):
+            yield final_answer
+        elif isinstance(final_answer, str):
+            yield final_answer
         else:
-            output_text += str(final_answer)
-
-        yield output_text
+            yield str(final_answer)
 
     except Exception as e:
         print(f"ERROR: {e}")
