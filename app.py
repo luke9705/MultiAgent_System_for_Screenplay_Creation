@@ -3,7 +3,7 @@ import os
 import base64
 import pandas as pd
 from PIL import Image
-from smolagents import CodeAgent, DuckDuckGoSearchTool, VisitWebpageTool, OpenAIServerModel, InferenceClientModel,tool, Tool
+from smolagents import CodeAgent, DuckDuckGoSearchTool, VisitWebpageTool, OpenAIServerModel, InferenceClientModel, tool
 from typing import Optional
 import requests
 from io import BytesIO
@@ -19,6 +19,7 @@ from odf.opendocument import load as load_odt
 import asyncio
 import httpx
 from concurrent.futures import ThreadPoolExecutor
+from gradio_client import Client
 
 ## utilties and class definition
 def is_image_extension(filename: str) -> bool:
@@ -192,7 +193,7 @@ def generate_image(prompt: str, neg_prompt: str) -> Image.Image:
 
     return gr.Image(value=image, label="Generated Image")
 
-@tool # not ready yet
+@tool
 def generate_audio(prompt: str, duration: int) -> gr.Component:
     """
     Generate audio from a text prompt using MusicGen.
@@ -206,15 +207,23 @@ def generate_audio(prompt: str, duration: int) -> gr.Component:
     DURATION_LIMIT = 30
     duration = duration if duration < DURATION_LIMIT else DURATION_LIMIT
 
-    client = Tool.from_gradio(
-        "luke9705/MusicGen_custom",
-        name="Sound_Generator",
-        description="Generate music or sound effects from a text prompt using MusicGen."
-    )
+    try:
+        # Connect to local Gradio server
+        client = Client("http://127.0.0.2:7860")
 
-    sound = client(prompt, duration)
+        # Call the generate_music function with prompt, duration, and None for sample
+        result = client.predict(
+            prompt,
+            duration,
+            None,  # no sample audio
+            api_name="/predict"
+        )
 
-    return gr.Audio(value=sound)
+        # result is a tuple (sample_rate, audio_data) or a file path
+        return gr.Audio(value=result)
+    except Exception as e:
+        print(f"Error generating audio: {e}")
+        raise
 
 
 @tool
@@ -231,17 +240,24 @@ def generate_audio_from_sample(prompt: str, duration: int, sample_path: str = No
 
     DURATION_LIMIT = 30
     duration = duration if duration < DURATION_LIMIT else DURATION_LIMIT
-    
-    client = Tool.from_space(
-        space_id="luke9705/MusicGen_custom",
-        token=os.environ.get('HF_TOKEN'),
-        name="Sound_Generator",
-        description="Generate music or sound effects from a text prompt using MusicGen."
-    )
-    
-    sound = client(prompt, duration, sample_path)
 
-    return gr.Audio(value=sound)
+    try:
+        # Connect to local Gradio server
+        client = Client("http://127.0.0.2:7860")
+
+        # Call the generate_music function with prompt, duration, and sample audio path
+        result = client.predict(
+            prompt,
+            duration,
+            sample_path,  # audio sample file path
+            api_name="/predict"
+        )
+
+        # result is a tuple (sample_rate, audio_data) or a file path
+        return gr.Audio(value=result)
+    except Exception as e:
+        print(f"Error generating audio with sample: {e}")
+        raise
 
 @tool   
 def caption_image(img_path: str, prompt: str) -> str:
