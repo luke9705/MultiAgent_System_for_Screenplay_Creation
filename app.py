@@ -19,7 +19,6 @@ from odf.opendocument import load as load_odt
 import asyncio
 import httpx
 from concurrent.futures import ThreadPoolExecutor
-import queue
 
 ## utilties and class definition
 def is_image_extension(filename: str) -> bool:
@@ -349,111 +348,91 @@ class Agent:
 
 
 ## gradio functions
-async def respond(message: str, history : dict, web_search: bool = False):
+async def respond(message: dict, history : list, web_search: bool = False):
     """
     Async respond function that handles multiple concurrent user requests and shows agent progress.
     """
     global agent
-    print("history:", history)
+    print("=" * 50)
+    print("RESPOND FUNCTION CALLED")
+    print(f"Message: {message}")
+    print(f"History: {history}")
+    print("=" * 50)
+
+    # TEST: Simple progress bar to verify yielding works
+    for i in range(1, 4):
+        yield f"🔄 Starting ({i}/3)..."
+        await asyncio.sleep(0.5)
+
     text = message.get("text", "")
 
     # Prepare the agent call parameters
     file = None
-    status_lines = ["🤖 **Behind the scenes:**\n"]
+    status_info = []
 
     if not message.get("files") and not web_search:
-        print("No files received.")
         prompt = text + "\nADDITIONAL CONTRAINT: Don't use web search"
-        status_lines.append("• No web search")
+        status_info.append("No web search")
     elif not message.get("files") and web_search:
-        print("No files received + web search enabled.")
         prompt = text
-        status_lines.append("• Web search: ON")
+        status_info.append("Web search ON")
     else:
         files = message.get("files", [])
         prompt = text if web_search else text + "\nADDITIONAL CONTRAINT: Don't use web search"
         file = load_file(files[0])
-        status_lines.append(f"• File: {Path(files[0]).name}")
+        status_info.append(f"File: {Path(files[0]).name}")
 
-    status_lines.append("• Starting...")
+    yield "🤖 Agent is working...\n• " + "\n• ".join(status_info)
 
-    # Show initial status as a text message
-    status_text = "\n".join(status_lines)
-    yield status_text
+    # Run agent and capture streaming steps
+    loop = asyncio.get_event_loop()
+    step_count = [0]
 
-    # Create a queue for streaming updates
-    update_queue = queue.Queue()
-    final_result = [None]
-
-    def run_agent_with_streaming():
-        """Runs in separate thread and pushes updates to queue"""
-        step_count = 0
+    def run_agent():
+        """Run agent and print all steps"""
         try:
+            print("Starting agent.run()...")
+            result = None
             for step in agent.agent.run(prompt, images=None, additional_args={"files": file, "conversation_history": history}):
-                step_count += 1
+                step_count[0] += 1
                 step_type = type(step).__name__
-                print(f"[Step {step_count}] {step_type}")
-
-                # Detect step type and send update
-                if 'Thought' in step_type:
-                    update_queue.put(('step', f"  {step_count}. 💭 Thinking"))
-                elif 'Code' in step_type:
-                    update_queue.put(('step', f"  {step_count}. ⚙️ Running code"))
-                elif 'Tool' in step_type:
-                    update_queue.put(('step', f"  {step_count}. 🔧 Using tool"))
-                elif 'Observation' in step_type:
-                    update_queue.put(('step', f"  {step_count}. 👀 Processing result"))
-                else:
-                    update_queue.put(('step', f"  {step_count}. ⏳ Working"))
-
-                final_result[0] = step
-
-            update_queue.put(('done', None))
+                print(f"[STEP {step_count[0]}] {step_type}: {str(step)[:80]}")
+                result = step
+            print(f"Agent done: {step_count[0]} steps")
+            return result
         except Exception as e:
-            print(f"Error in agent: {e}")
+            print(f"ERROR: {e}")
             import traceback
             traceback.print_exc()
-            update_queue.put(('error', str(e)))
+            raise
 
-    # Start agent in background thread
-    loop = asyncio.get_event_loop()
-    future = loop.run_in_executor(agent.executor, run_agent_with_streaming)
+    try:
+        # Start agent
+        future = loop.run_in_executor(agent.executor, run_agent)
 
-    # Poll queue for updates
-    while True:
-        await asyncio.sleep(0.15)
+        # Show periodic progress
+        last_count = 0
+        while not future.done():
+            await asyncio.sleep(0.5)
+            if step_count[0] > last_count:
+                last_count = step_count[0]
+                yield f"🤖 Agent is working...\n• " + "\n• ".join(status_info) + f"\n• Step {step_count[0]}..."
 
-        try:
-            msg_type, data = update_queue.get_nowait()
+        # Get result
+        final_answer = await future
 
-            if msg_type == 'step':
-                status_lines.append(data)
-                status_text = "\n".join(status_lines)
-                yield status_text
-            elif msg_type == 'done':
-                break
-            elif msg_type == 'error':
-                yield f"❌ Error: {data}"
-                return
-        except queue.Empty:
-            if future.done():
-                break
-            continue
+        # Show completion
+        yield f"✅ Done! ({step_count[0]} steps)"
+        await asyncio.sleep(0.2)
 
-    # Get final answer
-    if final_result[0] is not None:
-        final_answer = final_result[0]
-        print(f"Agent response type: {type(final_answer)}")
-        print(f"Agent response: {final_answer}")
-
-        # Yield final status then the answer
-        status_lines.append("\n✅ Done!")
-        yield "\n".join(status_lines)
-
-        # Yield the final answer
+        # Return final answer
+        print(f"Final answer type: {type(final_answer)}")
         yield final_answer
-    else:
-        yield "No response generated"
+
+    except Exception as e:
+        error_msg = f"❌ Error: {str(e)}"
+        print(error_msg)
+        yield error_msg
 
 def initialize_agent():
     agent = Agent()
