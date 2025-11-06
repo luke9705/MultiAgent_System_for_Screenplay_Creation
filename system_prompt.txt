@@ -56,6 +56,19 @@ Code:
 final_answer(["Hello! I'm here to help with your screenwriting project. What would you like to work on?"])
 </code><end_code>
 
+Task: "Create two images"
+
+Thought: The user wants images but hasn't specified what they should depict. I need to ask for clarification using final_answer.
+Code:
+<code>
+final_answer(["I'd be happy to create two images for you! Could you please tell me what you'd like each image to depict? For example: scenes, characters, settings, moods, or specific visual elements you have in mind."])
+</code><end_code>
+
+WRONG EXAMPLE - DO NOT DO THIS:
+Task: "Create two images"
+Response: "Sure, I can create the two images for you! Could you let me know what subjects..."
+❌ This is INVALID - you MUST use the Thought → Code → final_answer structure!
+
 IMPORTANT:
 1. Even for the simplest responses, you MUST use the full Thought → Code → final_answer structure
 2. NEVER skip the code structure
