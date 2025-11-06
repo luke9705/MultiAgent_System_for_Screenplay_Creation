@@ -348,99 +348,112 @@ class Agent:
 
 
 ## gradio functions
-async def respond(message: dict, history : list, web_search: bool = False):
+async def respond(message: dict, history : list, web_search: bool = False, progress=gr.Progress()):
     """
-    Async respond function that handles multiple concurrent user requests and shows agent progress.
+    Async respond function - shows what the agent did behind the scenes.
     """
     global agent
-    print("=" * 50)
-    print("RESPOND FUNCTION CALLED")
-    print(f"Message: {message}")
-    print("=" * 50)
-
     text = message.get("text", "")
+
+    # Show initial progress
+    progress(0, desc="🚀 Starting agent...")
 
     # Prepare the agent call parameters
     file = None
-    status_parts = []
-
     if not message.get("files") and not web_search:
         prompt = text + "\nADDITIONAL CONTRAINT: Don't use web search"
-        status_parts.append("🔧 No web search")
+        progress(0.1, desc="📝 No web search mode")
     elif not message.get("files") and web_search:
         prompt = text
-        status_parts.append("🔍 Web search enabled")
+        progress(0.1, desc="🔍 Web search enabled")
     else:
         files = message.get("files", [])
         prompt = text if web_search else text + "\nADDITIONAL CONTRAINT: Don't use web search"
         file = load_file(files[0])
-        status_parts.append(f"📁 File: {Path(files[0]).name}")
+        progress(0.1, desc=f"📁 Processing {Path(files[0]).name}")
 
     # Run agent and track steps
     loop = asyncio.get_event_loop()
     step_log = []
+    last_update = [0]
 
     def run_agent():
         """Run agent and log all steps"""
-        try:
-            print("Starting agent.run()...")
-            result = None
-            for step in agent.agent.run(prompt, images=None, additional_args={"files": file, "conversation_history": history}):
-                step_type = type(step).__name__
-                step_log.append((len(step_log) + 1, step_type))
-                print(f"[STEP {len(step_log)}] {step_type}")
-                result = step
-            print(f"Agent completed with {len(step_log)} steps")
-            return result
-        except Exception as e:
-            print(f"ERROR: {e}")
-            import traceback
-            traceback.print_exc()
-            raise
+        result = None
+        for step in agent.agent.run(prompt, images=None, additional_args={"files": file, "conversation_history": history}):
+            step_type = type(step).__name__
+            step_log.append(step_type)
+            print(f"[{len(step_log)}] {step_type}")
+            result = step
+        return result
 
     try:
-        # Run agent with periodic status updates
+        # Start agent in background
         future = loop.run_in_executor(agent.executor, run_agent)
 
-        # Show updates every second
-        dots = 0
+        # Update progress periodically
         while not future.done():
-            await asyncio.sleep(1.0)
-            dots = (dots + 1) % 4
-            dot_str = "." * dots
-            status_msg = "🤖 **Agent working" + dot_str + "**\n\n" + "\n".join(status_parts)
-            if len(step_log) > 0:
-                status_msg += f"\n\n_Progress: {len(step_log)} step{'s' if len(step_log) != 1 else ''} completed_"
-            yield status_msg
+            await asyncio.sleep(0.5)
+            if len(step_log) > last_update[0]:
+                last_update[0] = len(step_log)
+                # Get last step type
+                last_step = step_log[-1]
+                if "Thought" in last_step:
+                    icon = "💭"
+                    desc = "Thinking"
+                elif "Code" in last_step:
+                    icon = "⚙️"
+                    desc = "Running code"
+                elif "Tool" in last_step:
+                    icon = "🔧"
+                    desc = "Using tool"
+                else:
+                    icon = "⏳"
+                    desc = "Processing"
 
-        # Get final result
+                # Progress as percentage (capped at 90% until done)
+                prog_val = min(0.2 + (len(step_log) * 0.15), 0.9)
+                progress(prog_val, desc=f"{icon} {desc} (step {len(step_log)})")
+
+        # Get final answer
         final_answer = await future
+        progress(1.0, desc="✅ Complete!")
 
-        # Show final status with step breakdown
-        status_msg = "🤖 **Processing complete!**\n\n" + "\n".join(status_parts) + f"\n\n**Behind the scenes:**\n"
+        # Create summary of what happened
+        if step_log:
+            summary = "\n\n---\n**Behind the scenes:** "
+            step_counts = {}
+            for step_type in step_log:
+                step_counts[step_type] = step_counts.get(step_type, 0) + 1
 
-        # Show step types
-        step_summary = {}
-        for _, step_type in step_log:
-            step_summary[step_type] = step_summary.get(step_type, 0) + 1
+            parts = []
+            for step_type, count in step_counts.items():
+                if "Thought" in step_type:
+                    parts.append(f"💭 Thought ({count})")
+                elif "Code" in step_type:
+                    parts.append(f"⚙️ Code ({count})")
+                elif "Tool" in step_type:
+                    parts.append(f"🔧 Tool ({count})")
+                else:
+                    parts.append(f"📝 {step_type} ({count})")
 
-        for step_type, count in step_summary.items():
-            icon = "💭" if "Thought" in step_type else "⚙️" if "Code" in step_type else "🔧" if "Tool" in step_type else "📝"
-            status_msg += f"\n• {icon} {step_type}: {count}×"
+            summary += " → ".join(parts) + f" | {len(step_log)} steps"
 
-        status_msg += f"\n\n_Total: {len(step_log)} steps_"
+            # Append summary to final answer if it's a string
+            if isinstance(final_answer, str):
+                final_answer = final_answer + summary
+            elif isinstance(final_answer, list):
+                # If it's a list, append as a text item
+                final_answer.append(summary)
 
-        yield status_msg
-        await asyncio.sleep(0.3)
-
-        # Return final answer
-        print(f"Final answer type: {type(final_answer)}")
-        yield final_answer
+        return final_answer
 
     except Exception as e:
-        error_msg = f"❌ **Error occurred**\n\n{str(e)}"
-        print(error_msg)
-        yield error_msg
+        progress(1.0, desc="❌ Error")
+        print(f"ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        return f"❌ Error: {str(e)}"
 
 def initialize_agent():
     agent = Agent()
@@ -462,7 +475,7 @@ demo = gr.ChatInterface(
                     multimodal=True,
                     title='Scriptura: A MultiAgent System for Screenplay Creation and Editing 🎞️',
                     description=description,
-                    show_progress='hidden',  # Changed from 'full' to 'hidden' since we're showing custom progress
+                    show_progress='full',  # Show default progress indicator
                     fill_height=True,
                     fill_width=True,
                     save_history=True,
