@@ -70,4 +70,9 @@ demo = gr.Interface(
         )
 
 if __name__ == "__main__":
-    demo.launch(show_error=True)
+    demo.launch(
+        server_name="127.0.0.2",
+        server_port=7860,
+        show_error=True,
+        share=False
+    )

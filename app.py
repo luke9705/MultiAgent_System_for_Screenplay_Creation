@@ -19,7 +19,7 @@ from odf.opendocument import load as load_odt
 import asyncio
 import httpx
 from concurrent.futures import ThreadPoolExecutor
-from gradio_client import Client
+from audio_client_wrapper import generate_audio_gradio
 
 ## utilties and class definition
 def is_image_extension(filename: str) -> bool:
@@ -208,19 +208,8 @@ def generate_audio(prompt: str, duration: int) -> gr.Component:
     duration = duration if duration < DURATION_LIMIT else DURATION_LIMIT
 
     try:
-        # Connect to local Gradio server
-        client = Client("http://127.0.0.2:7860")
-
-        # Call the generate_music function with prompt, duration, and None for sample
-        result = client.predict(
-            prompt,
-            duration,
-            None,  # no sample audio
-            api_name="/predict"
-        )
-
-        # result is a tuple (sample_rate, audio_data) or a file path
-        return gr.Audio(value=result)
+        # Use the wrapper to call local Gradio server
+        return generate_audio_gradio(prompt, duration, None)
     except Exception as e:
         print(f"Error generating audio: {e}")
         raise
@@ -242,19 +231,8 @@ def generate_audio_from_sample(prompt: str, duration: int, sample_path: str = No
     duration = duration if duration < DURATION_LIMIT else DURATION_LIMIT
 
     try:
-        # Connect to local Gradio server
-        client = Client("http://127.0.0.2:7860")
-
-        # Call the generate_music function with prompt, duration, and sample audio path
-        result = client.predict(
-            prompt,
-            duration,
-            sample_path,  # audio sample file path
-            api_name="/predict"
-        )
-
-        # result is a tuple (sample_rate, audio_data) or a file path
-        return gr.Audio(value=result)
+        # Use the wrapper to call local Gradio server with sample
+        return generate_audio_gradio(prompt, duration, sample_path)
     except Exception as e:
         print(f"Error generating audio with sample: {e}")
         raise

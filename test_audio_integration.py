@@ -3,7 +3,7 @@ Test script to verify local audio generation integration.
 Make sure your audio.py server is running at http://127.0.0.2:7860 before running this test.
 """
 
-from gradio_client import Client
+from audio_client_wrapper import LocalAudioClient
 import os
 
 def test_local_audio_generation():
@@ -12,21 +12,27 @@ def test_local_audio_generation():
     print("Connecting to local server at http://127.0.0.2:7860")
 
     try:
-        client = Client("http://127.0.0.2:7860")
-        print("✓ Connected to local server")
+        client = LocalAudioClient()
+        print("✓ Audio client initialized")
 
         # Test basic generation
         print("\nGenerating audio: 'A warm, lo-fi piano loop' for 8 seconds...")
-        result = client.predict(
+        result = client.generate_audio(
             "A warm, lo-fi piano loop",  # prompt
             8,  # duration
-            None,  # no sample
-            api_name="/predict"
+            None  # no sample
         )
 
         print(f"✓ Audio generated successfully!")
         print(f"  Result type: {type(result)}")
-        print(f"  Result: {result}")
+
+        if isinstance(result, tuple) and len(result) == 2:
+            sample_rate, audio_data = result
+            print(f"  Sample rate: {sample_rate} Hz")
+            print(f"  Audio shape: {audio_data.shape}")
+            print(f"  Audio dtype: {audio_data.dtype}")
+        else:
+            print(f"  Result: {result}")
 
         return result
 
@@ -52,18 +58,23 @@ def test_audio_with_sample():
         return
 
     try:
-        client = Client("http://127.0.0.2:7860")
+        client = LocalAudioClient()
 
         print(f"\nGenerating audio with sample: {sample_path}")
-        result = client.predict(
+        result = client.generate_audio(
             "A warm, lo-fi piano loop",  # prompt
             8,  # duration
-            sample_path,  # sample audio path
-            api_name="/predict"
+            sample_path  # sample audio path
         )
 
         print(f"✓ Audio with sample generated successfully!")
-        print(f"  Result: {result}")
+
+        if isinstance(result, tuple) and len(result) == 2:
+            sample_rate, audio_data = result
+            print(f"  Sample rate: {sample_rate} Hz")
+            print(f"  Audio shape: {audio_data.shape}")
+        else:
+            print(f"  Result: {result}")
 
         return result
 
