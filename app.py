@@ -1,5 +1,4 @@
 import gradio as gr
-from gradio import ChatMessage
 import os
 import base64
 import pandas as pd
@@ -20,7 +19,6 @@ from odf.opendocument import load as load_odt
 import asyncio
 import httpx
 from concurrent.futures import ThreadPoolExecutor
-import queue
 
 ## utilties and class definition
 def is_image_extension(filename: str) -> bool:
@@ -315,7 +313,7 @@ class Agent:
             additional_authorized_imports=["pandas", "PIL", "io"],
             #planning_interval=5,
             max_steps=5,
-            stream_outputs=True,
+            stream_outputs=False,
             final_answer_checks=[check_format]
         )
         with open("system_prompt.txt", "r", encoding="utf-8") as f:
@@ -350,140 +348,34 @@ class Agent:
 
 
 ## gradio functions
-async def respond(message: dict, history : list, web_search: bool = False):
+async def respond(message: str, history : dict, web_search: bool = False):
     """
-    Async respond function - shows agent progress in real-time in the chat UI.
-    Streams the actual content of each step (thoughts, code, tool outputs).
+    Async respond function that handles multiple concurrent user requests.
+    Each user's request runs in a separate thread via the agent's thread pool executor.
     """
     global agent
+    # input
+    print("history:", history)
     text = message.get("text", "")
-
-    # Prepare the agent call parameters
-    file = None
-    if not message.get("files") and not web_search:
-        prompt = text + "\nADDITIONAL CONTRAINT: Don't use web search"
-    elif not message.get("files") and web_search:
-        prompt = text
+    if not message.get("files") and not web_search: # no files uploaded
+        print("No files received.")
+        message = await agent.async_call(text + "\nADDITIONAL CONTRAINT: Don't use web search", conversation_history=history) # conversation_history is a dict with the history of the conversation
+    elif not message.get("files") and web_search: # no files uploaded
+        print("No files received + web search enabled.")
+        message = await agent.async_call(text, conversation_history=history)
     else:
         files = message.get("files", [])
-        prompt = text if web_search else text + "\nADDITIONAL CONTRAINT: Don't use web search"
-        file = load_file(files[0])
-
-    # Use a queue to communicate steps from thread to async loop in real-time
-    step_queue = queue.Queue()
-    step_contents = []
-
-    def run_agent():
-        """Run agent and push steps to queue as they happen"""
-        result = None
-        try:
-            for step in agent.agent.run(prompt, images=None, additional_args={"files": file, "conversation_history": history}):
-                step_queue.put(("step", step))
-                print(f"[Step {len(step_contents)+1}] {type(step).__name__}")
-                result = step
-            step_queue.put(("done", result))
-        except Exception as e:
-            step_queue.put(("error", e))
-        return result
-
-    try:
-        # Start agent in background
-        loop = asyncio.get_event_loop()
-        future = loop.run_in_executor(agent.executor, run_agent)
-
-        # Process steps in real-time as they arrive
-        while True:
-            # Check queue for new steps (non-blocking)
-            try:
-                msg_type, data = step_queue.get_nowait()
-
-                if msg_type == "step":
-                    step_contents.append(data)
-
-                    # Build the full output showing actual step content
-                    output_text = "🤖 **Agent Working...**\n\n"
-
-                    for i, step in enumerate(step_contents, 1):
-                        step_type = type(step).__name__
-
-                        if "Thought" in step_type:
-                            # Extract the actual thought text
-                            thought_text = getattr(step, 'thought', None) or getattr(step, 'text', str(step))
-                            output_text += f"💭 **Thought {i}:**\n{thought_text}\n\n"
-
-                        elif "Code" in step_type:
-                            # Extract the actual code being executed
-                            code_text = getattr(step, 'code', None) or getattr(step, 'action', str(step))
-                            output_text += f"⚙️ **Code {i}:**\n```python\n{code_text}\n```\n\n"
-
-                        elif "Tool" in step_type:
-                            # Extract tool call details
-                            tool_name = getattr(step, 'tool_name', 'Unknown Tool')
-                            tool_args = getattr(step, 'tool_args', {})
-                            output_text += f"🔧 **Tool {i}:** {tool_name}\n"
-                            if tool_args:
-                                output_text += f"_Args:_ {tool_args}\n\n"
-
-                        elif "Action" in step_type:
-                            # Handle action steps
-                            action_text = getattr(step, 'action', None) or str(step)
-                            output_text += f"⚡ **Action {i}:**\n{action_text}\n\n"
-
-                        elif "Observation" in step_type or "Output" in step_type:
-                            # Handle observation/output steps
-                            obs_text = getattr(step, 'observation', None) or getattr(step, 'output', str(step))
-                            # Truncate long observations
-                            if len(str(obs_text)) > 500:
-                                obs_text = str(obs_text)[:500] + "..."
-                            output_text += f"📊 **Output {i}:**\n{obs_text}\n\n"
-
-                        else:
-                            # Fallback for unknown step types
-                            output_text += f"⏳ **Step {i} ({step_type}):**\n{str(step)[:300]}\n\n"
-
-                    output_text += "---\n_Processing..._"
-                    yield output_text
-
-                elif msg_type == "done":
-                    final_answer = data
-                    break
-
-                elif msg_type == "error":
-                    raise data
-
-            except queue.Empty:
-                # No new steps, wait a bit
-                await asyncio.sleep(0.1)
-
-                # Check if agent finished
-                if future.done():
-                    # Drain any remaining steps
-                    while not step_queue.empty():
-                        msg_type, data = step_queue.get_nowait()
-                        if msg_type == "step":
-                            step_contents.append(data)
-                        elif msg_type == "done":
-                            final_answer = data
-                    break
-
-        # Wait for agent to complete if not already done
-        if not future.done():
-            await future
-
-        # Return final answer directly (preserve Gradio components like images)
-        # Don't wrap in text if it's already a list of components
-        if isinstance(final_answer, list):
-            yield final_answer
-        elif isinstance(final_answer, str):
-            yield final_answer
+        if not web_search:
+            file = load_file(files[0])
+            message = await agent.async_call(text + "\nADDITIONAL CONTRAINT: Don't use web search", files=file, conversation_history=history)
         else:
-            yield str(final_answer)
+            file = load_file(files[0])
+            message = await agent.async_call(text, files=file, conversation_history=history)
 
-    except Exception as e:
-        print(f"ERROR: {e}")
-        import traceback
-        traceback.print_exc()
-        yield f"❌ Error: {str(e)}"
+    # output
+    print("Agent response:", message)
+
+    return message
 
 def initialize_agent():
     agent = Agent()
@@ -493,6 +385,15 @@ def initialize_agent():
 ## gradio interface
 description = textwrap.dedent("""**Scriptura** is a multi-agent AI framework based on HF-SmolAgents that streamlines the creation of screenplays, storyboards, 
 and soundtracks by automating the stages of analysis, summarization, and multimodal enrichment, freeing authors to focus on pure creativity.
+At its heart:
+- **A big model, like DeepSeek R1 or GPT 4.1**, serves as the primary orchestrating agent, coordinating workflows and managing high-level reasoning across the system.
+- **Gemma-3-27B-IT** acts as a specialized assistant for multimodal tasks, supporting both text and image inputs to refine narrative elements and prepare them for downstream generation.
+                    
+For media generation, Scriptura integrates:
+- **MusicGen** models (per the AudioCraft MusicGen specification), deployed via Hugging Face Spaces, 
+enabling the agent to produce original soundtracks and sound effects from text prompts or combined text + audio samples.
+- **FLUX (black-forest-labs/FLUX.1-dev)** for on-the-fly image creation, ideal for storyboards, concept art, and 
+visual references that seamlessly tie into the narrative flow.
 
 To view the presentation **video**, click [here](https://www.youtube.com/watch?v=I0201ruB1Uo&ab_channel=3DLabFactory) 🤓
 """)
@@ -505,20 +406,20 @@ demo = gr.ChatInterface(
                     multimodal=True,
                     title='Scriptura: A MultiAgent System for Screenplay Creation and Editing 🎞️',
                     description=description,
-                    show_progress='minimal',  # Minimal progress bar since we show status in chat
+                    show_progress='full',
                     fill_height=True,
                     fill_width=True,
                     save_history=True,
                     autoscroll=True,
                     additional_inputs=[
-                        gr.Checkbox(value=False, label="Web Search",
+                        gr.Checkbox(value=False, label="Web Search", 
                                 info="Enable web search to find information online. If disabled, the agent will only use the provided files and images.",
                                 render=False),
-                            ],
+                            ],   
                     additional_inputs_accordion=gr.Accordion(label="Tools available: ", open=True, render=False)
                         ).queue(
-                            max_size=100,
-                            default_concurrency_limit=10
+                            max_size=100,            # Maximum queue size (pending requests)
+                            default_concurrency_limit=10  # Match ThreadPoolExecutor max_workers
                         )
 
 
