@@ -1,15 +1,8 @@
 ---
-title: "Scriptura"
-short_description: "MultiAgent System for Screenplay Creation and Editing"
-emoji: 🎞️
-colorFrom: yellow
-colorTo: blue
-sdk: gradio
-sdk_version: 5.32.1
+title: MultiAgent_for_MCP2526
 app_file: app.py
-pinned: false
-license: mit
-tag: agent-demo-track
+sdk: gradio
+sdk_version: 5.49.1
 ---
 
 # Scriptura: A MultiAgent System for Screenplay Creation and Editing

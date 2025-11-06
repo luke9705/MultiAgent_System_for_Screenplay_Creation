@@ -1,3 +1,5 @@
+torch --index-url https://download.pytorch.org/whl/cu128
+torchvision 
 huggingface_hub
 smolagents
 smolagents[audio]
@@ -9,3 +11,5 @@ anthropic
 docx2txt
 odfpy
 ddgs
+spacy==3.8.7
+git+https://github.com/facebookresearch/audiocraft@v1.3.0

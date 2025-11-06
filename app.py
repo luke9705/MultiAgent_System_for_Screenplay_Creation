@@ -17,7 +17,6 @@ import textwrap
 import docx2txt
 from odf.opendocument import load as load_odt
 
-
 ## utilties and class definition
 def is_image_extension(filename: str) -> bool:
     IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', '.svg'}
@@ -149,7 +148,7 @@ def generate_image(prompt: str, neg_prompt: str) -> Image.Image:
         prompt=prompt,
         response_format="b64_json",
         extra_body={
-            "response_extension": "png",
+            "response_extension": "png",<
             "width": 1024,
             "height": 1024,
             "num_inference_steps": 30,
@@ -164,7 +163,7 @@ def generate_image(prompt: str, neg_prompt: str) -> Image.Image:
 
     return gr.Image(value=image, label="Generated Image")
 
-@tool
+@tool # not ready yet
 def generate_audio(prompt: str, duration: int) -> gr.Component:
     """
     Generate audio from a text prompt using MusicGen.
@@ -178,9 +177,8 @@ def generate_audio(prompt: str, duration: int) -> gr.Component:
     DURATION_LIMIT = 30
     duration = duration if duration < DURATION_LIMIT else DURATION_LIMIT
 
-    client = Tool.from_space(
-        space_id="luke9705/MusicGen_custom",
-        token=os.environ.get('HF_TOKEN'),
+    client = Tool.from_gradio(
+        "luke9705/MusicGen_custom",
         name="Sound_Generator",
         description="Generate music or sound effects from a text prompt using MusicGen."
     )
@@ -253,7 +251,9 @@ def caption_image(img_path: str, prompt: str) -> str:
 class Agent:
     def __init__(self, ):
         #client = HfApiModel("deepseek-ai/DeepSeek-R1-0528", provider="nebius", api_key=os.getenv("NEBIUS_API_KEY"))
-        #client = HfApiModel("Qwen/Qwen3-32B", provider="nebius", api_key=os.getenv("NEBIUS_API_KEY"))
+        client = InferenceClientModel("openai/gpt-oss-20b",
+                                      provider="nebius", 
+                                      api_key=os.getenv("NEBIUS_API_KEY"))
         
         """client = OpenAIServerModel(
             model_id="claude-opus-4-20250514",
@@ -261,12 +261,16 @@ class Agent:
             api_key=os.environ["ANTHROPIC_API_KEY"],
         )"""
 
-        client = OpenAIServerModel(
+        """client = OpenAIServerModel(
         model_id= "gpt-4.1-2025-04-14", #"gpt-5-nano-2025-08-07", #gpt-5-mini-2025-08-07"
         api_base="https://api.openai.com/v1",
         api_key=os.environ["OPENAI_API_KEY"],
-        )
-        
+        )"""
+        """from smolagents import TransformersModel
+
+        client = TransformersModel(model_id="google/gemma-3-1b-it",
+                                   device_map="cuda",)"""
+
         self.agent = CodeAgent(
             model=client,
             tools=[DuckDuckGoSearchTool(max_results=5), 
@@ -278,16 +282,15 @@ class Agent:
                    download_images, 
                    transcribe_audio],
             additional_authorized_imports=["pandas", "PIL", "io"],
-            planning_interval=3,
-            max_steps=6,
+            planning_interval=2,
+            max_steps=4,
             stream_outputs=False,
             final_answer_checks=[check_format]
         )
-        with open("system_prompt.txt", "r") as f:
+        with open("system_prompt.txt", "r", encoding="utf-8") as f:
             system_prompt = f.read()
             self.agent.prompt_templates["system_prompt"] = system_prompt
         
-        #print("System prompt:", self.agent.prompt_templates["system_prompt"])
 
     def __call__(self, message: str, 
                  images: Optional[list[Image.Image]] = None, 
@@ -374,4 +377,7 @@ demo = gr.ChatInterface(
 
 
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(
+        server_name="127.0.0.1",
+        server_port=7860
+    )
