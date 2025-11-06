@@ -359,82 +359,98 @@ async def respond(message: str, history : dict, web_search: bool = False):
 
     # Prepare the agent call parameters
     file = None
-    status_msg = "🤖 **Agent Status:**\n\n"
+    status_lines = ["🤖 **Behind the scenes:**\n"]
 
     if not message.get("files") and not web_search:
         print("No files received.")
         prompt = text + "\nADDITIONAL CONTRAINT: Don't use web search"
-        status_msg += "• Mode: Direct processing (no web search)\n"
+        status_lines.append("• No web search")
     elif not message.get("files") and web_search:
         print("No files received + web search enabled.")
         prompt = text
-        status_msg += "• Mode: Web search enabled\n• Searching online resources...\n"
+        status_lines.append("• Web search: ON")
     else:
         files = message.get("files", [])
         prompt = text if web_search else text + "\nADDITIONAL CONTRAINT: Don't use web search"
         file = load_file(files[0])
-        status_msg += f"• Processing file: **{Path(files[0]).name}**\n"
-        status_msg += f"• File loaded successfully\n"
+        status_lines.append(f"• File: {Path(files[0]).name}")
 
-    status_msg += "• Agent is thinking...\n"
-    yield {"role": "assistant", "content": status_msg}
+    status_lines.append("• Starting...")
+
+    # Show initial status as a text message
+    status_text = "\n".join(status_lines)
+    yield status_text
 
     # Create a queue for streaming updates
     update_queue = queue.Queue()
-    final_result = []
+    final_result = [None]
 
     def run_agent_with_streaming():
         """Runs in separate thread and pushes updates to queue"""
         step_count = 0
-        for step in agent.agent.run(prompt, images=None, additional_args={"files": file, "conversation_history": history}):
-            step_count += 1
-            step_str = str(step)
-            print(f"[Step {step_count}] {type(step).__name__}")
+        try:
+            for step in agent.agent.run(prompt, images=None, additional_args={"files": file, "conversation_history": history}):
+                step_count += 1
+                step_type = type(step).__name__
+                print(f"[Step {step_count}] {step_type}")
 
-            # Send status updates to queue
-            if 'Thought' in step_str or hasattr(step, 'thought'):
-                update_queue.put(('status', f"{step_count}. 💭 Thinking..."))
-            elif 'Code' in step_str or hasattr(step, 'code'):
-                update_queue.put(('status', f"{step_count}. ⚙️ Executing code..."))
-            elif 'tool' in step_str.lower():
-                update_queue.put(('status', f"{step_count}. 🔧 Using tool..."))
-            else:
-                update_queue.put(('status', f"{step_count}. ⏳ Processing..."))
+                # Detect step type and send update
+                if 'Thought' in step_type:
+                    update_queue.put(('step', f"  {step_count}. 💭 Thinking"))
+                elif 'Code' in step_type:
+                    update_queue.put(('step', f"  {step_count}. ⚙️ Running code"))
+                elif 'Tool' in step_type:
+                    update_queue.put(('step', f"  {step_count}. 🔧 Using tool"))
+                elif 'Observation' in step_type:
+                    update_queue.put(('step', f"  {step_count}. 👀 Processing result"))
+                else:
+                    update_queue.put(('step', f"  {step_count}. ⏳ Working"))
 
-            final_result.append(step)
+                final_result[0] = step
 
-        update_queue.put(('done', final_result))
+            update_queue.put(('done', None))
+        except Exception as e:
+            print(f"Error in agent: {e}")
+            import traceback
+            traceback.print_exc()
+            update_queue.put(('error', str(e)))
 
     # Start agent in background thread
     loop = asyncio.get_event_loop()
     future = loop.run_in_executor(agent.executor, run_agent_with_streaming)
 
-    # Poll queue for updates and yield them
+    # Poll queue for updates
     while True:
-        await asyncio.sleep(0.1)  # Small delay to prevent tight loop
+        await asyncio.sleep(0.15)
 
         try:
             msg_type, data = update_queue.get_nowait()
 
-            if msg_type == 'status':
-                status_msg += f"\n{data}"
-                yield {"role": "assistant", "content": status_msg}
+            if msg_type == 'step':
+                status_lines.append(data)
+                status_text = "\n".join(status_lines)
+                yield status_text
             elif msg_type == 'done':
-                # Agent finished
                 break
+            elif msg_type == 'error':
+                yield f"❌ Error: {data}"
+                return
         except queue.Empty:
-            # Check if agent is done
             if future.done():
                 break
             continue
 
     # Get final answer
-    if final_result:
-        status_msg += "\n\n✅ **Complete!**\n"
-        yield {"role": "assistant", "content": status_msg}
+    if final_result[0] is not None:
+        final_answer = final_result[0]
+        print(f"Agent response type: {type(final_answer)}")
+        print(f"Agent response: {final_answer}")
 
-        final_answer = final_result[-1]
-        print("Agent response:", final_answer)
+        # Yield final status then the answer
+        status_lines.append("\n✅ Done!")
+        yield "\n".join(status_lines)
+
+        # Yield the final answer
         yield final_answer
     else:
         yield "No response generated"
