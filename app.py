@@ -19,6 +19,7 @@ from odf.opendocument import load as load_odt
 import asyncio
 import httpx
 from concurrent.futures import ThreadPoolExecutor
+import queue
 
 ## utilties and class definition
 def is_image_extension(filename: str) -> bool:
@@ -313,7 +314,7 @@ class Agent:
             additional_authorized_imports=["pandas", "PIL", "io"],
             #planning_interval=5,
             max_steps=5,
-            stream_outputs=False,
+            stream_outputs=True,
             final_answer_checks=[check_format]
         )
         with open("system_prompt.txt", "r", encoding="utf-8") as f:
@@ -350,43 +351,93 @@ class Agent:
 ## gradio functions
 async def respond(message: str, history : dict, web_search: bool = False):
     """
-    Async respond function that handles multiple concurrent user requests.
-    Each user's request runs in a separate thread via the agent's thread pool executor.
+    Async respond function that handles multiple concurrent user requests and shows agent progress.
     """
     global agent
-    # input
     print("history:", history)
     text = message.get("text", "")
 
-    # Show initial status
-    status_msg = "🤖 Agent is thinking..."
-    yield {"role": "assistant", "content": status_msg}
+    # Prepare the agent call parameters
+    file = None
+    status_msg = "🤖 **Agent Status:**\n\n"
 
-    if not message.get("files") and not web_search: # no files uploaded
+    if not message.get("files") and not web_search:
         print("No files received.")
-        status_msg += "\n📝 Processing request (no web search)..."
-        yield {"role": "assistant", "content": status_msg}
-        message = await agent.async_call(text + "\nADDITIONAL CONTRAINT: Don't use web search", conversation_history=history)
-    elif not message.get("files") and web_search: # no files uploaded
+        prompt = text + "\nADDITIONAL CONTRAINT: Don't use web search"
+        status_msg += "• Mode: Direct processing (no web search)\n"
+    elif not message.get("files") and web_search:
         print("No files received + web search enabled.")
-        status_msg += "\n🔍 Web search enabled - gathering information..."
-        yield {"role": "assistant", "content": status_msg}
-        message = await agent.async_call(text, conversation_history=history)
+        prompt = text
+        status_msg += "• Mode: Web search enabled\n• Searching online resources...\n"
     else:
         files = message.get("files", [])
-        status_msg += f"\n📁 Processing file: {Path(files[0]).name}..."
+        prompt = text if web_search else text + "\nADDITIONAL CONTRAINT: Don't use web search"
+        file = load_file(files[0])
+        status_msg += f"• Processing file: **{Path(files[0]).name}**\n"
+        status_msg += f"• File loaded successfully\n"
+
+    status_msg += "• Agent is thinking...\n"
+    yield {"role": "assistant", "content": status_msg}
+
+    # Create a queue for streaming updates
+    update_queue = queue.Queue()
+    final_result = []
+
+    def run_agent_with_streaming():
+        """Runs in separate thread and pushes updates to queue"""
+        step_count = 0
+        for step in agent.agent.run(prompt, images=None, additional_args={"files": file, "conversation_history": history}):
+            step_count += 1
+            step_str = str(step)
+            print(f"[Step {step_count}] {type(step).__name__}")
+
+            # Send status updates to queue
+            if 'Thought' in step_str or hasattr(step, 'thought'):
+                update_queue.put(('status', f"{step_count}. 💭 Thinking..."))
+            elif 'Code' in step_str or hasattr(step, 'code'):
+                update_queue.put(('status', f"{step_count}. ⚙️ Executing code..."))
+            elif 'tool' in step_str.lower():
+                update_queue.put(('status', f"{step_count}. 🔧 Using tool..."))
+            else:
+                update_queue.put(('status', f"{step_count}. ⏳ Processing..."))
+
+            final_result.append(step)
+
+        update_queue.put(('done', final_result))
+
+    # Start agent in background thread
+    loop = asyncio.get_event_loop()
+    future = loop.run_in_executor(agent.executor, run_agent_with_streaming)
+
+    # Poll queue for updates and yield them
+    while True:
+        await asyncio.sleep(0.1)  # Small delay to prevent tight loop
+
+        try:
+            msg_type, data = update_queue.get_nowait()
+
+            if msg_type == 'status':
+                status_msg += f"\n{data}"
+                yield {"role": "assistant", "content": status_msg}
+            elif msg_type == 'done':
+                # Agent finished
+                break
+        except queue.Empty:
+            # Check if agent is done
+            if future.done():
+                break
+            continue
+
+    # Get final answer
+    if final_result:
+        status_msg += "\n\n✅ **Complete!**\n"
         yield {"role": "assistant", "content": status_msg}
-        if not web_search:
-            file = load_file(files[0])
-            message = await agent.async_call(text + "\nADDITIONAL CONTRAINT: Don't use web search", files=file, conversation_history=history)
-        else:
-            file = load_file(files[0])
-            message = await agent.async_call(text, files=file, conversation_history=history)
 
-    # output
-    print("Agent response:", message)
-
-    yield message
+        final_answer = final_result[-1]
+        print("Agent response:", final_answer)
+        yield final_answer
+    else:
+        yield "No response generated"
 
 def initialize_agent():
     agent = Agent()
