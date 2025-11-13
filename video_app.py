@@ -521,5 +521,5 @@ if __name__ == "__main__":
         share=False,
         mcp_server=True,
         server_name="127.0.0.1",
-        server_port=7861
+        server_port=7860
     )

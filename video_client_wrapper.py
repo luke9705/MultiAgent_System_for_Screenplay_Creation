@@ -13,7 +13,7 @@ from typing import Optional, Tuple
 class LocalVideoClient:
     """Client for calling the local LTX Video Gradio server."""
 
-    def __init__(self, server_url: str = "http://127.0.0.1:7861"):
+    def __init__(self, server_url: str = "http://127.0.0.1:7860"):
         self.server_url = server_url.rstrip("/")
         self.api_url = f"{self.server_url}/api/predict"
         self.session_hash = str(uuid.uuid4())  # Generate a unique session ID
