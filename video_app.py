@@ -83,19 +83,14 @@ if PIPELINE_CONFIG_YAML.get("spatial_upscaler_model_path"):
 target_inference_device = "cuda"
 print(f"Target inference device: {target_inference_device}")
 
-# Enable CPU offloading for memory efficiency
-# This moves model components to CPU when not in use
-try:
-    print("Enabling model CPU offload for memory optimization...")
-    pipeline_instance.enable_model_cpu_offload()
-    print("✓ Model CPU offload enabled")
-except AttributeError:
-    # If enable_model_cpu_offload is not available, fall back to standard .to()
-    print("Model CPU offload not available, using standard device placement")
-    pipeline_instance.to(target_inference_device)
+# Move pipeline to CUDA
+# Note: CPU offload is disabled due to device mismatch issues with latent upsampler
+pipeline_instance.to(target_inference_device)
+print(f"Pipeline moved to {target_inference_device}")
 
 if latent_upsampler_instance:
     latent_upsampler_instance.to(target_inference_device)
+    print(f"Latent upsampler moved to {target_inference_device}")
 
 
 # --- Helper function for dimension calculation ---
@@ -225,7 +220,7 @@ def generate(prompt, negative_prompt, input_image_filepath=None, input_video_fil
         "is_video": True,
         "vae_per_channel_normalize": True,
         "mixed_precision": (PIPELINE_CONFIG_YAML["precision"] == "mixed_precision"),
-        "offload_to_cpu": True,  # Enable CPU offloading to reduce VRAM usage
+        "offload_to_cpu": False,  # Disabled: causes device mismatch with latent upsampler
         "enhance_prompt": False,
     }
 
