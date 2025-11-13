@@ -20,6 +20,7 @@ import asyncio
 import httpx
 from concurrent.futures import ThreadPoolExecutor
 from audio_client_wrapper import generate_audio_gradio
+from video_client_wrapper import generate_text_to_video, generate_image_to_video
 
 ## utilties and class definition
 def is_image_extension(filename: str) -> bool:
@@ -56,6 +57,8 @@ def load_file(path: str) -> dict:
                 text = f.read()  # plain text str
         case '.mp3' | '.wav':
             return {"audio path": path}
+        case '.mp4' | '.avi' | '.mov' | '.mkv' | '.webm':
+            return {"video path": path}
         case _: # default case
             text = None
 
@@ -237,7 +240,75 @@ def generate_audio_from_sample(prompt: str, duration: int, sample_path: str = No
         print(f"Error generating audio with sample: {e}")
         raise
 
-@tool   
+@tool
+def generate_video(prompt: str, duration: float = 2.0, height: int = 512, width: int = 704) -> str:
+    """
+    Generate a video from a text prompt using LTX Video model.
+    Args:
+        prompt: The text prompt describing the desired video content.
+        duration: Duration of the generated video in seconds. Range: 0.3 to 8.5 seconds. Default is 2.0.
+        height: Height of the output video in pixels (must be divisible by 32). Default is 512.
+        width: Width of the output video in pixels (must be divisible by 32). Default is 704.
+    Returns:
+        str: Path to the generated video file.
+    """
+    DURATION_LIMIT = 8.5
+    duration = min(duration, DURATION_LIMIT)
+
+    # Ensure dimensions are divisible by 32
+    height = (height // 32) * 32
+    width = (width // 32)  * 32
+
+    try:
+        # Use the wrapper to call local Gradio server
+        video_path, seed = generate_text_to_video(
+            prompt=prompt,
+            duration=duration,
+            height=height,
+            width=width,
+            randomize_seed=True
+        )
+        return video_path
+    except Exception as e:
+        print(f"Error generating video: {e}")
+        raise
+
+@tool
+def generate_video_from_image(prompt: str, image_path: str, duration: float = 2.0, height: int = 512, width: int = 704) -> str:
+    """
+    Generate a video by animating an input image based on a text prompt using LTX Video model.
+    Args:
+        prompt: The text prompt describing how the image should be animated.
+        image_path: Path to the input image file to be animated.
+        duration: Duration of the generated video in seconds. Range: 0.3 to 8.5 seconds. Default is 2.0.
+        height: Height of the output video in pixels (must be divisible by 32). Default is 512.
+        width: Width of the output video in pixels (must be divisible by 32). Default is 704.
+    Returns:
+        str: Path to the generated video file.
+    """
+    DURATION_LIMIT = 8.5
+    duration = min(duration, DURATION_LIMIT)
+
+    # Ensure dimensions are divisible by 32
+    height = (height // 32) * 32
+    width = (width // 32) * 32
+
+    try:
+        # Use the wrapper to call local Gradio server
+        video_path, seed = generate_image_to_video(
+            prompt=prompt,
+            input_image_filepath=image_path,
+            duration=duration,
+            height=height,
+            width=width,
+            randomize_seed=True
+        )
+        return video_path
+    except Exception as e:
+        print(f"Error generating video from image: {e}")
+        raise
+
+@tool
 def caption_image(img_path: str, prompt: str) -> str:
     """
     Generate a caption for an image at the given path using Gemma3.
@@ -301,6 +372,8 @@ class Agent:
                    generate_image,
                    generate_audio_from_sample,
                    generate_audio,
+                   generate_video,
+                   generate_video_from_image,
                    caption_image,
                    download_images,
                    transcribe_audio],
