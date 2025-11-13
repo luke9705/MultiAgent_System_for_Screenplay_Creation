@@ -241,7 +241,7 @@ def generate_audio_from_sample(prompt: str, duration: int, sample_path: str = No
         raise
 
 @tool
-def generate_video(prompt: str, duration: float = 2.0, height: int = 512, width: int = 704) -> str:
+def generate_video(prompt: str, duration: float = 2.0, height: int = 384, width: int = 512) -> str:
     """
     Generate a video from a text prompt using LTX Video model.
     Args:
@@ -274,7 +274,7 @@ def generate_video(prompt: str, duration: float = 2.0, height: int = 512, width:
         raise
 
 @tool
-def generate_video_from_image(prompt: str, image_path: str, duration: float = 2.0, height: int = 512, width: int = 704) -> str:
+def generate_video_from_image(prompt: str, image_path: str, duration: float = 2.0, height: int = 384, width: int = 512) -> str:
     """
     Generate a video by animating an input image based on a text prompt using LTX Video model.
     Args:

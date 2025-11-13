@@ -59,38 +59,33 @@ spatial_upscaler_actual_path = hf_hub_download(
 PIPELINE_CONFIG_YAML["spatial_upscaler_model_path"] = spatial_upscaler_actual_path
 print(f"Spatial upscaler model path: {spatial_upscaler_actual_path}")
 
-print("Creating LTX Video pipeline on CPU...")
+target_inference_device = "cuda"
+print(f"Creating LTX Video pipeline directly on {target_inference_device}...")
 pipeline_instance = create_ltx_video_pipeline(
     ckpt_path=PIPELINE_CONFIG_YAML["checkpoint_path"],
     precision=PIPELINE_CONFIG_YAML["precision"],
     text_encoder_model_name_or_path=PIPELINE_CONFIG_YAML["text_encoder_model_name_or_path"],
     sampler=PIPELINE_CONFIG_YAML["sampler"],
-    device="cpu",
+    device=target_inference_device,  # Initialize directly on CUDA
     enhance_prompt=False,
     prompt_enhancer_image_caption_model_name_or_path=PIPELINE_CONFIG_YAML["prompt_enhancer_image_caption_model_name_or_path"],
     prompt_enhancer_llm_model_name_or_path=PIPELINE_CONFIG_YAML["prompt_enhancer_llm_model_name_or_path"],
 )
-print("LTX Video pipeline created on CPU.")
+print(f"✓ LTX Video pipeline created on {target_inference_device}")
 
 if PIPELINE_CONFIG_YAML.get("spatial_upscaler_model_path"):
-    print("Creating latent upsampler on CPU...")
+    print(f"Creating latent upsampler on {target_inference_device}...")
     latent_upsampler_instance = create_latent_upsampler(
         PIPELINE_CONFIG_YAML["spatial_upscaler_model_path"],
-        device="cpu"
+        device=target_inference_device  # Initialize directly on CUDA
     )
-    print("Latent upsampler created on CPU.")
+    print(f"✓ Latent upsampler created on {target_inference_device}")
 
-target_inference_device = "cuda"
-print(f"Target inference device: {target_inference_device}")
-
-# Move pipeline to CUDA
-# Note: CPU offload is disabled due to device mismatch issues with latent upsampler
-pipeline_instance.to(target_inference_device)
-print(f"Pipeline moved to {target_inference_device}")
-
-if latent_upsampler_instance:
-    latent_upsampler_instance.to(target_inference_device)
-    print(f"Latent upsampler moved to {target_inference_device}")
+# Note: CPU offloading not enabled
+# The Lightricks LTX-Video implementation doesn't support Diffusers-style group offloading
+# The built-in offload_to_cpu parameter causes device mismatches with latent upsampler
+print("Running without CPU offload (full model on GPU)")
+print("Tip: Lower resolution (384x512) used to reduce VRAM requirements")
 
 
 # --- Helper function for dimension calculation ---
