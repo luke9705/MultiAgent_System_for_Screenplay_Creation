@@ -81,11 +81,12 @@ if PIPELINE_CONFIG_YAML.get("spatial_upscaler_model_path"):
     )
     print(f"✓ Latent upsampler created on {target_inference_device}")
 
-# Note: CPU offloading not enabled
-# The Lightricks LTX-Video implementation doesn't support Diffusers-style group offloading
-# The built-in offload_to_cpu parameter causes device mismatches with latent upsampler
-print("Running without CPU offload (full model on GPU)")
-print("Tip: Lower resolution (384x512) used to reduce VRAM requirements")
+# CPU offloading enabled
+# NOTE: offload_to_cpu=True requires improve_texture=False to avoid device mismatch
+# The latent upsampler conflicts with CPU offloading
+print("✓ CPU offload will be enabled during inference (offload_to_cpu=True)")
+print("✓ Multi-scale texture improvement disabled (required for CPU offload)")
+print("✓ Lower resolution (384x512) default to reduce VRAM requirements")
 
 
 # --- Helper function for dimension calculation ---
@@ -215,7 +216,7 @@ def generate(prompt, negative_prompt, input_image_filepath=None, input_video_fil
         "is_video": True,
         "vae_per_channel_normalize": True,
         "mixed_precision": (PIPELINE_CONFIG_YAML["precision"] == "mixed_precision"),
-        "offload_to_cpu": False,  # Disabled: causes device mismatch with latent upsampler
+        "offload_to_cpu": True,  # Enabled for memory optimization (requires improve_texture=False)
         "enhance_prompt": False,
     }
 
@@ -392,7 +393,7 @@ with gr.Blocks(css=css) as demo:
                 step=0.1, 
                 info=f"Target video duration (0.3s to 8.5s)"
             )
-            improve_texture = gr.Checkbox(label="Improve Texture (multi-scale)", value=True,visible=False, info="Uses a two-pass generation for better quality, but is slower. Recommended for final output.")
+            improve_texture = gr.Checkbox(label="Improve Texture (multi-scale)", value=False, visible=False, info="Uses a two-pass generation for better quality, but is slower. NOTE: Must be False when CPU offload is enabled.")
 
         with gr.Column():
             output_video = gr.Video(label="Generated Video", interactive=False)

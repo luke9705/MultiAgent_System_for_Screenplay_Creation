@@ -32,7 +32,7 @@ class LocalVideoClient:
         seed: int = 42,
         randomize_seed: bool = True,
         guidance_scale: float = 3.0,
-        improve_texture: bool = True
+        improve_texture: bool = False  # Disabled for CPU offload compatibility
     ) -> Tuple[str, int]:
         """
         Generate video using the local LTX Video server.
@@ -50,7 +50,7 @@ class LocalVideoClient:
             seed: Random seed for reproducible generation
             randomize_seed: Whether to use a random seed instead of the specified seed
             guidance_scale: CFG scale controlling prompt influence (1.0 to 10.0)
-            improve_texture: Whether to use multi-scale generation for better quality
+            improve_texture: Whether to use multi-scale generation (disabled by default for CPU offload)
 
         Returns:
             Tuple of (output_video_path, used_seed)
