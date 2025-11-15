@@ -15,7 +15,6 @@ class LocalVideoClient:
 
     def __init__(self, server_url: str = "http://127.0.0.1:7861"):
         self.server_url = server_url.rstrip("/")
-        self.api_url = f"{self.server_url}/api/predict"
         self.session_hash = str(uuid.uuid4())  # Generate a unique session ID
 
     def generate_video(
@@ -57,38 +56,48 @@ class LocalVideoClient:
         """
 
         # Determine the correct API endpoint based on mode
-        fn_index_map = {
-            "text-to-video": 0,
-            "image-to-video": 1
+        api_endpoints = {
+            "text-to-video": f"{self.server_url}/api/text_to_video",
+            "image-to-video": f"{self.server_url}/api/image_to_video"
         }
 
-        fn_index = fn_index_map.get(mode, 0)
+        api_url = api_endpoints.get(mode, api_endpoints["text-to-video"])
 
-        # Prepare the request payload with required Gradio API fields
-        payload = {
-            "data": [
-                prompt,
-                negative_prompt,
-                input_image_filepath,
-                input_video_filepath,
-                height,
-                width,
-                mode,
-                duration,
-                frames_to_use,
-                seed,
-                randomize_seed,
-                guidance_scale,
-                improve_texture
-            ],
-            "session_hash": self.session_hash,
-            "fn_index": fn_index
-        }
+        # Prepare the request payload based on mode
+        if mode == "text-to-video":
+            payload = {
+                "data": [
+                    prompt,
+                    negative_prompt,
+                    height,
+                    width,
+                    duration,
+                    seed,
+                    randomize_seed,
+                    guidance_scale,
+                    improve_texture
+                ]
+            }
+        else:  # image-to-video
+            payload = {
+                "data": [
+                    prompt,
+                    negative_prompt,
+                    input_image_filepath,
+                    height,
+                    width,
+                    duration,
+                    seed,
+                    randomize_seed,
+                    guidance_scale,
+                    improve_texture
+                ]
+            }
 
         try:
             # Make the HTTP request
             response = requests.post(
-                self.api_url,
+                api_url,
                 json=payload,
                 timeout=600  # 10 minutes timeout for video generation
             )
