@@ -1,6 +1,7 @@
 import gradio as gr
 import torch
 from diffusers.pipelines.ltx.pipeline_ltx import LTXPipeline
+from diffusers import LTXImageToVideoPipeline
 from diffusers.utils import export_to_video
 from PIL import Image
 from typing import Optional, Tuple
@@ -8,16 +9,22 @@ import numpy as np
 import tempfile
 import os
 
-# Load LTX-Video model (0.9.8 distilled variant)
-print("Loading LTX-Video model...")
-pipe = LTXPipeline.from_pretrained(
+# Load LTX-Video models (0.9.8 distilled variant)
+print("Loading LTX-Video text-to-video model...")
+pipe_t2v = LTXPipeline.from_pretrained(
     "Lightricks/LTX-Video",
     torch_dtype=torch.bfloat16
 )
+pipe_t2v.enable_model_cpu_offload()
+print("Text-to-video model loaded!")
 
-# Enable memory savings
-pipe.enable_model_cpu_offload()
-print("Model loaded successfully!")
+print("Loading LTX-Video image-to-video model...")
+pipe_i2v = LTXImageToVideoPipeline.from_pretrained(
+    "Lightricks/LTX-Video",
+    torch_dtype=torch.bfloat16
+)
+pipe_i2v.enable_model_cpu_offload()
+print("Image-to-video model loaded!")
 
 def duration_to_frames(duration: float, fps: int = 24) -> int:
     """
@@ -85,24 +92,36 @@ def generate_video_fn(
     generator = torch.Generator(device="cpu").manual_seed(seed)
 
     try:
-        # Prepare inputs based on mode
-        pipeline_kwargs = {
-            "prompt": prompt,
-            "negative_prompt": negative_prompt,
-            "height": height,
-            "width": width,
-            "num_frames": num_frames,
-            "guidance_scale": guidance_scale,
-            "generator": generator,
-            "output_type": "pil"
-        }
-
-        # For image-to-video mode, add the input image
+        # Select the appropriate pipeline and prepare inputs
         if mode == "image-to-video" and input_image is not None:
-            # LTX-Video supports image conditioning
+            # Use image-to-video pipeline
+            pipe = pipe_i2v
             # Resize input image to match output dimensions
             input_image = input_image.resize((width, height))
-            pipeline_kwargs["image"] = input_image
+            pipeline_kwargs = {
+                "image": input_image,
+                "prompt": prompt,
+                "negative_prompt": negative_prompt,
+                "height": height,
+                "width": width,
+                "num_frames": num_frames,
+                "guidance_scale": guidance_scale,
+                "generator": generator,
+                "output_type": "pil"
+            }
+        else:
+            # Use text-to-video pipeline
+            pipe = pipe_t2v
+            pipeline_kwargs = {
+                "prompt": prompt,
+                "negative_prompt": negative_prompt,
+                "height": height,
+                "width": width,
+                "num_frames": num_frames,
+                "guidance_scale": guidance_scale,
+                "generator": generator,
+                "output_type": "pil"
+            }
 
         # Generate video
         print(f"Generating {mode} with prompt: '{prompt[:50]}...'")
