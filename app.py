@@ -18,6 +18,7 @@ import docx2txt
 from odf.opendocument import load as load_odt
 import asyncio
 import httpx
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from audio_client_wrapper import generate_audio_gradio
 from video_client_wrapper import generate_text_to_video, generate_image_to_video
@@ -279,7 +280,7 @@ def generate_video_from_image(prompt: str, image_path: str, duration: float = 2.
     Generate a video by animating an input image based on a text prompt using LTX Video model.
     Args:
         prompt: The text prompt describing how the image should be animated.
-        image_path: Path to the input image file to be animated.
+        image_path: Path to the input image file to be animated, or a PIL Image object.
         duration: Duration of the generated video in seconds. Range: 0.3 to 8.5 seconds. Default is 2.0.
         height: Height of the output video in pixels (must be divisible by 32). Default is 512.
         width: Width of the output video in pixels (must be divisible by 32). Default is 704.
@@ -293,11 +294,20 @@ def generate_video_from_image(prompt: str, image_path: str, duration: float = 2.
     height = (height // 32) * 32
     width = (width // 32) * 32
 
+    # Handle both PIL Image objects and file paths
+    if isinstance(image_path, Image.Image):
+        # Save PIL Image to temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_file:
+            image_path.save(tmp_file.name)
+            actual_image_path = tmp_file.name
+    else:
+        actual_image_path = image_path
+
     try:
         # Use the wrapper to call local Gradio server
         video_path, seed = generate_image_to_video(
             prompt=prompt,
-            input_image_filepath=image_path,
+            input_image_filepath=actual_image_path,
             duration=duration,
             height=height,
             width=width,
