@@ -80,7 +80,7 @@ def generate_video_fn(
 
     # Handle seed
     if randomize_seed:
-        seed = np.random.randint(0, 2**32 - 1)
+        seed = np.random.randint(0, 2**31 - 1)  # int32 max limit
 
     generator = torch.Generator(device="cpu").manual_seed(seed)
 
