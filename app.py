@@ -242,7 +242,7 @@ def generate_audio_from_sample(prompt: str, duration: int, sample_path: str = No
         raise
 
 @tool
-def generate_video(prompt: str, duration: float = 2.0, height: int = 384, width: int = 512) -> str:
+def generate_video(prompt: str, duration: float = 2.0, height: int = 384, width: int = 512) -> gr.Component:
     """
     Generate a video from a text prompt using LTX Video model.
     Args:
@@ -251,7 +251,7 @@ def generate_video(prompt: str, duration: float = 2.0, height: int = 384, width:
         height: Height of the output video in pixels (must be divisible by 32). Default is 512.
         width: Width of the output video in pixels (must be divisible by 32). Default is 704.
     Returns:
-        str: Path to the generated video file.
+        gr.Component: The generated video as a Gradio Video component.
     """
     DURATION_LIMIT = 8.5
     duration = min(duration, DURATION_LIMIT)
@@ -269,13 +269,13 @@ def generate_video(prompt: str, duration: float = 2.0, height: int = 384, width:
             width=width,
             randomize_seed=True
         )
-        return video_path
+        return gr.Video(value=video_path, label=f"Generated Video (seed: {seed})")
     except Exception as e:
         print(f"Error generating video: {e}")
         raise
 
 @tool
-def generate_video_from_image(prompt: str, image_path: str, duration: float = 2.0, height: int = 384, width: int = 512) -> str:
+def generate_video_from_image(prompt: str, image_path: str, duration: float = 2.0, height: int = 384, width: int = 512) -> gr.Component:
     """
     Generate a video by animating an input image based on a text prompt using LTX Video model.
     Args:
@@ -285,7 +285,7 @@ def generate_video_from_image(prompt: str, image_path: str, duration: float = 2.
         height: Height of the output video in pixels (must be divisible by 32). Default is 512.
         width: Width of the output video in pixels (must be divisible by 32). Default is 704.
     Returns:
-        str: Path to the generated video file.
+        gr.Component: The generated video as a Gradio Video component.
     """
     DURATION_LIMIT = 8.5
     duration = min(duration, DURATION_LIMIT)
@@ -313,7 +313,7 @@ def generate_video_from_image(prompt: str, image_path: str, duration: float = 2.
             width=width,
             randomize_seed=True
         )
-        return video_path
+        return gr.Video(value=video_path, label=f"Generated Video from Image (seed: {seed})")
     except Exception as e:
         print(f"Error generating video from image: {e}")
         raise
