@@ -22,6 +22,19 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from audio_client_wrapper import generate_audio_gradio
 from video_client_wrapper import generate_text_to_video, generate_image_to_video
+import logging
+import sys
+
+# Configure logging to save to file and show in console
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('app.log', encoding='utf-8', mode='a'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
 
 ## utilties and class definition
 def is_image_extension(filename: str) -> bool:
