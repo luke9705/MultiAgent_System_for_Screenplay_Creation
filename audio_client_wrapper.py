@@ -1,14 +1,12 @@
 """
 Wrapper functions for calling the local Gradio audio generation server.
-Handles different approaches to ensure compatibility.
+Uses Gradio Client for reliable API communication with MusicGen model.
 """
 
-import requests
-import json
+from gradio_client import Client
+from typing import Optional, Tuple, Union, Any
 import numpy as np
-from typing import Optional, Tuple
 import gradio as gr
-import uuid
 
 
 class LocalAudioClient:
@@ -16,15 +14,20 @@ class LocalAudioClient:
 
     def __init__(self, server_url: str = "http://127.0.0.2:7860"):
         self.server_url = server_url.rstrip("/")
-        self.api_url = f"{self.server_url}/api/predict"
-        self.session_hash = str(uuid.uuid4())  # Generate a unique session ID
+        self.client = None
+
+    def _get_client(self) -> Client:
+        """Get or create Gradio client instance."""
+        if self.client is None:
+            self.client = Client(self.server_url)
+        return self.client
 
     def generate_audio(
         self,
         prompt: str,
         duration: int = 8,
         sample_audio: Optional[str] = None
-    ) -> Tuple[int, np.ndarray]:
+    ) -> Union[Tuple[int, np.ndarray], dict, Any]:
         """
         Generate audio using the local MusicGen server.
 
@@ -36,61 +39,33 @@ class LocalAudioClient:
         Returns:
             Tuple of (sample_rate, audio_data) where audio_data is a numpy array
         """
+        try:
+            client = self._get_client()
 
-        # Prepare the request payload with required Gradio API fields
-        payload = {
-            "data": [
+            # Call the audio generation endpoint
+            # gr.Interface uses positional arguments in order
+            result = client.predict(
                 prompt,
                 duration,
                 sample_audio  # Can be None or a file path
-            ],
-            "session_hash": self.session_hash,
-            "fn_index": 0  # First (and only) function in the interface
-        }
-
-        try:
-            # Make the HTTP request
-            response = requests.post(
-                self.api_url,
-                json=payload,
-                timeout=300  # 5 minutes timeout for generation
             )
 
-            if response.status_code == 200:
-                result = response.json()
+            # Handle different result formats
+            if isinstance(result, dict):
+                # If it's a file path dictionary, we need to handle it
+                if "name" in result:
+                    # This is a file reference, return it as-is for Gradio to handle
+                    return result
 
-                # Extract the audio data from the response
-                if "data" in result:
-                    audio_data = result["data"][0]
+            # If it's a tuple (sample_rate, audio_array)
+            if isinstance(result, (list, tuple)) and len(result) == 2:
+                sample_rate = result[0]
+                audio_array = np.array(result[1]) if not isinstance(result[1], np.ndarray) else result[1]
+                return sample_rate, audio_array
 
-                    # The response should be [sample_rate, audio_array]
-                    if isinstance(audio_data, list) and len(audio_data) == 2:
-                        sample_rate = audio_data[0]
-                        audio_array = np.array(audio_data[1])
-                        return sample_rate, audio_array
-                    else:
-                        # If it's just a file path
-                        return audio_data
+            # Otherwise return as-is
+            return result
 
-                else:
-                    raise ValueError(f"Unexpected response format: {result}")
-
-            else:
-                error_text = response.text
-                raise RuntimeError(
-                    f"Server returned error {response.status_code}: {error_text}"
-                )
-
-        except requests.exceptions.Timeout:
-            raise TimeoutError(
-                f"Audio generation timed out after 300 seconds. "
-                f"Try reducing the duration or check server status."
-            )
-        except requests.exceptions.ConnectionError:
-            raise ConnectionError(
-                f"Could not connect to audio server at {self.server_url}. "
-                f"Make sure audio.py is running."
-            )
         except Exception as e:
             raise RuntimeError(f"Error generating audio: {e}")
 
@@ -123,11 +98,12 @@ class LocalAudioClient:
                 raise ValueError(f"Audio file path is missing in response: {audio_data}")
 
         # Otherwise, it should be a tuple (sample_rate, audio_array)
-        return gr.Audio(value=audio_data)
+        return gr.Audio(value=audio_data)  # type: ignore
 
 
 # Standalone function versions for easy import
 _client = None
+
 
 def get_audio_client() -> LocalAudioClient:
     """Get or create a singleton audio client instance."""
@@ -141,7 +117,7 @@ def generate_audio_local(
     prompt: str,
     duration: int = 8,
     sample_audio: Optional[str] = None
-) -> Tuple[int, np.ndarray]:
+) -> Union[Tuple[int, np.ndarray], dict, Any]:
     """
     Convenience function to generate audio using the local server.
 
@@ -151,10 +127,10 @@ def generate_audio_local(
         sample_audio: Optional path to sample audio file
 
     Returns:
-        Tuple of (sample_rate, audio_data)
+        Tuple of (sample_rate, audio_data) or dict with file path
     """
     client = get_audio_client()
-    return client.generate_audio(prompt, duration, sample_audio)
+    return client.generate_audio(prompt, duration, sample_audio)  # type: ignore
 
 
 def generate_audio_gradio(
@@ -189,10 +165,12 @@ if __name__ == "__main__":
 
         print(f"✓ Success!")
         print(f"  Result type: {type(result)}")
-        print(f"  Result: {result}")
+        if isinstance(result, tuple):
+            print(f"  Sample rate: {result[0]}")
+            print(f"  Audio shape: {result[1].shape}")
 
     except Exception as e:
         print(f"✗ Error: {e}")
         print("\nMake sure:")
-        print("  1. Your audio.py server is running at http://127.0.0.2:7860")
-        print("  2. The server has finished loading the model")
+        print("  1. Your audio_app.py server is running at http://127.0.0.2:7860")
+        print("  2. The server has finished loading the MusicGen model")
