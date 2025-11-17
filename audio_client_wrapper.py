@@ -3,14 +3,6 @@ Wrapper functions for calling the local Gradio audio generation server.
 Uses Gradio Client for reliable API communication with MusicGen model.
 """
 
-import sys
-import io
-
-# Force UTF-8 encoding for Windows compatibility
-if sys.platform == 'win32':
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
-
 from gradio_client import Client
 from typing import Optional, Tuple, Union, Any
 import numpy as np
