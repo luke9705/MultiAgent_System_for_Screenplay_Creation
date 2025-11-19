@@ -172,5 +172,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"✗ Error: {e}")
         print("\nMake sure:")
-        print("  1. Your audio_app.py server is running at http://127.0.0.2:7860")
+        print("  1. Your audio_app.py server is running at http://127.0.0.1:7860")
         print("  2. The server has finished loading the MusicGen model")
