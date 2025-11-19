@@ -47,7 +47,8 @@ class LocalAudioClient:
             result = client.predict(
                 prompt,
                 duration,
-                sample_audio  # Can be None or a file path
+                sample_audio,  # Can be None or a file path
+                api_name="/predict"
             )
 
             # Handle different result formats
