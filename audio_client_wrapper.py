@@ -1,26 +1,22 @@
 """
 Wrapper functions for calling the local Gradio audio generation server.
-Uses Gradio Client for reliable API communication with MusicGen model.
+Uses HTTP requests for API communication with MusicGen model.
 """
 
-from gradio_client import Client
+import requests
+import json
 from typing import Optional, Tuple, Union, Any
 import numpy as np
 import gradio as gr
+import time
 
 
 class LocalAudioClient:
-    """Client for calling the local MusicGen Gradio server."""
+    """Client for calling the local MusicGen Gradio server via HTTP."""
 
     def __init__(self, server_url: str = "http://127.0.0.1:7860"):
         self.server_url = server_url.rstrip("/")
-        self.client = None
-
-    def _get_client(self) -> Client:
-        """Get or create Gradio client instance."""
-        if self.client is None:
-            self.client = Client(self.server_url)
-        return self.client
+        self.session = requests.Session()
 
     def generate_audio(
         self,
@@ -40,33 +36,47 @@ class LocalAudioClient:
             Tuple of (sample_rate, audio_data) where audio_data is a numpy array
         """
         try:
-            client = self._get_client()
+            # Prepare the request payload
+            payload = {
+                "data": [prompt, duration, sample_audio]
+            }
 
-            # Call the audio generation endpoint with explicit API name
-            result = client.predict(
-                prompt,
-                duration,
-                sample_audio,  # Can be None or a file path
-                api_name="/generate_audio"
+            # Send request to the Gradio API
+            response = self.session.post(
+                f"{self.server_url}/api/generate_audio",
+                json=payload,
+                timeout=300  # 5 minute timeout for generation
             )
 
-            # Handle different result formats
-            if isinstance(result, dict):
-                # If it's a file path dictionary, we need to handle it
-                if "name" in result:
-                    # This is a file reference, return it as-is for Gradio to handle
-                    return result
+            if response.status_code != 200:
+                raise RuntimeError(f"Server returned status {response.status_code}: {response.text}")
 
-            # If it's a tuple (sample_rate, audio_array)
-            if isinstance(result, (list, tuple)) and len(result) == 2:
-                sample_rate = result[0]
-                audio_array = np.array(result[1]) if not isinstance(result[1], np.ndarray) else result[1]
-                return sample_rate, audio_array
+            result = response.json()
+
+            # Extract data from response
+            if "data" not in result:
+                raise RuntimeError(f"Could not find 'data' key in response. Response received: {result}")
+
+            data = result["data"]
+
+            # Handle different result formats
+            if isinstance(data, list) and len(data) >= 1:
+                audio_result = data[0]
+
+                # If it's a file path dictionary
+                if isinstance(audio_result, dict) and "name" in audio_result:
+                    return audio_result
+
+                # If it's a tuple (sample_rate, audio_array)
+                if isinstance(audio_result, (list, tuple)) and len(audio_result) == 2:
+                    sample_rate = audio_result[0]
+                    audio_array = np.array(audio_result[1]) if not isinstance(audio_result[1], np.ndarray) else audio_result[1]
+                    return sample_rate, audio_array
 
             # Otherwise return as-is
-            return result
+            return data
 
-        except Exception as e:
+        except requests.exceptions.RequestException as e:
             raise RuntimeError(f"Error generating audio: {e}")
 
     def generate_audio_for_gradio(
