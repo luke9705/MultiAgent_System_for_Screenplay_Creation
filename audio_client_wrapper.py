@@ -12,7 +12,7 @@ import gradio as gr
 class LocalAudioClient:
     """Client for calling the local MusicGen Gradio server."""
 
-    def __init__(self, server_url: str = "http://127.0.0.2:7860"):
+    def __init__(self, server_url: str = "http://127.0.0.1:7860"):
         self.server_url = server_url.rstrip("/")
         self.client = None
 
