@@ -9,6 +9,7 @@ from typing import Optional, Tuple, Union, Any
 import numpy as np
 import gradio as gr
 import time
+import uuid
 
 
 class LocalAudioClient:
@@ -17,6 +18,7 @@ class LocalAudioClient:
     def __init__(self, server_url: str = "http://127.0.0.1:7860"):
         self.server_url = server_url.rstrip("/")
         self.session = requests.Session()
+        self.session_hash = str(uuid.uuid4())
 
     def generate_audio(
         self,
@@ -36,9 +38,11 @@ class LocalAudioClient:
             Tuple of (sample_rate, audio_data) where audio_data is a numpy array
         """
         try:
-            # Prepare the request payload
+            # Prepare the request payload with required Gradio fields
             payload = {
-                "data": [prompt, duration, sample_audio]
+                "data": [prompt, duration, sample_audio],
+                "fn_index": 0,
+                "session_hash": self.session_hash
             }
 
             # Send request to the Gradio API
