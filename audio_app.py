@@ -70,16 +70,10 @@ with gr.Blocks(title="MusicGen text-to-music demo") as demo:
         with gr.Column():
             audio_output = gr.Audio(type="numpy", label="Generated track (32 kHz)")
 
-    # UI interaction
     generate_btn.click(
         fn=generate_music,
         inputs=[prompt_input, duration_input, sample_input],
-        outputs=audio_output
-    )
-
-    # Explicit API endpoint for gradio_client
-    gr.api(
-        fn=generate_music,
+        outputs=audio_output,
         api_name="generate_audio"
     )
 
