@@ -48,26 +48,34 @@ def generate_music(prompt: str, duration: int, sample: Optional[tuple[int, np.nd
     sample_rate = 32000  # MusicGen models are trained at 32 kHz
     return sample_rate, waveform
 
-# gradio interface
-demo = gr.Interface(
-            fn=generate_music,
-            inputs=[gr.Textbox(
-                        lines=2,
-                        placeholder="Describe the music you'd like to hear…",
-                        label="Text prompt",
-                        ),
-                    gr.Number(value = 10, label="Duration"),
-                    gr.Audio(),
-                    ],
-                
-            outputs=gr.Audio(type="numpy", label="Generated track (32 kHz)"),
-            title="MusicGen text-to-music demo",
-            description=(
-                "Enter a text prompt and click **Generate** to receive an 8-second "
-                "music clip created by Meta's MusicGen-medium model."
-            ),
-            allow_flagging="never",
-        )
+# gradio interface using Blocks for better API compatibility
+with gr.Blocks(title="MusicGen text-to-music demo") as demo:
+    gr.Markdown("# MusicGen text-to-music demo")
+    gr.Markdown(
+        "Enter a text prompt and click **Generate** to receive a "
+        "music clip created by Meta's MusicGen-medium model."
+    )
+
+    with gr.Row():
+        with gr.Column():
+            prompt_input = gr.Textbox(
+                lines=2,
+                placeholder="Describe the music you'd like to hear…",
+                label="Text prompt"
+            )
+            duration_input = gr.Number(value=10, label="Duration (seconds)")
+            sample_input = gr.Audio(label="Sample audio (optional)")
+            generate_btn = gr.Button("Generate", variant="primary")
+
+        with gr.Column():
+            audio_output = gr.Audio(type="numpy", label="Generated track (32 kHz)")
+
+    generate_btn.click(
+        fn=generate_music,
+        inputs=[prompt_input, duration_input, sample_input],
+        outputs=audio_output,
+        api_name="generate_audio"
+    )
 
 if __name__ == "__main__":
     demo.launch(

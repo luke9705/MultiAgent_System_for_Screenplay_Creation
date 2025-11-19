@@ -42,13 +42,12 @@ class LocalAudioClient:
         try:
             client = self._get_client()
 
-            # Call the audio generation endpoint
-            # gr.Interface uses positional arguments in order
+            # Call the audio generation endpoint with explicit API name
             result = client.predict(
                 prompt,
                 duration,
                 sample_audio,  # Can be None or a file path
-                api_name="/predict"
+                api_name="/generate_audio"
             )
 
             # Handle different result formats
