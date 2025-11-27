@@ -81,7 +81,7 @@ class _Tee:
     def seekable(self):
         return False
 
-_log_file = open('output.txt', 'a', encoding='utf-8')
+_log_file = open('output/output.txt', 'a', encoding='utf-8')
 sys.stdout = _Tee(sys.__stdout__, _log_file)
 sys.stderr = _Tee(sys.__stderr__, _log_file)
 
