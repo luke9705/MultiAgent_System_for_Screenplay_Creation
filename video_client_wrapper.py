@@ -5,12 +5,19 @@ Uses Gradio Client for reliable API communication with LTX Video model.
 
 from gradio_client import Client
 from typing import Optional, Tuple
+import os
+
+
+# Default server URL, can be overridden by VIDEO_SERVER_URL environment variable
+DEFAULT_VIDEO_SERVER_URL = os.environ.get("VIDEO_SERVER_URL", "http://127.0.0.1:7861")
 
 
 class LocalVideoClient:
     """Client for calling the local LTX Video Gradio server."""
 
-    def __init__(self, server_url: str = "http://127.0.0.1:7861"):
+    def __init__(self, server_url: str = None):
+        if server_url is None:
+            server_url = DEFAULT_VIDEO_SERVER_URL
         self.server_url = server_url.rstrip("/")
         self.client = None
 
@@ -152,7 +159,7 @@ class LocalVideoClient:
 _client = None
 
 
-def get_video_client(server_url: str = "http://127.0.0.1:7861") -> LocalVideoClient:
+def get_video_client(server_url: str = None) -> LocalVideoClient:
     """Get or create a singleton video client instance."""
     global _client
     if _client is None:

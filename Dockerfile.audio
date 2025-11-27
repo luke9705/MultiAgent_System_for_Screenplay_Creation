@@ -1,0 +1,27 @@
+# Dockerfile for Audio Service (MusicGen)
+FROM pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    libsndfile1 \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies for audio
+RUN pip install --no-cache-dir \
+    gradio \
+    numpy \
+    git+https://github.com/facebookresearch/audiocraft@v1.3.0
+
+# Copy application code
+COPY audio_app.py .
+
+# Expose port
+EXPOSE 7860
+
+# Run the audio server (bind to 0.0.0.0 for Docker)
+CMD ["python", "-c", "import audio_app; audio_app.demo.launch(server_name='0.0.0.0', server_port=7860, show_error=True, share=False)"]

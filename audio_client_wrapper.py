@@ -10,12 +10,19 @@ import numpy as np
 import gradio as gr
 import time
 import uuid
+import os
+
+
+# Default server URL, can be overridden by AUDIO_SERVER_URL environment variable
+DEFAULT_AUDIO_SERVER_URL = os.environ.get("AUDIO_SERVER_URL", "http://127.0.0.1:7860")
 
 
 class LocalAudioClient:
     """Client for calling the local MusicGen Gradio server via HTTP."""
 
-    def __init__(self, server_url: str = "http://127.0.0.1:7860"):
+    def __init__(self, server_url: str = None):
+        if server_url is None:
+            server_url = DEFAULT_AUDIO_SERVER_URL
         self.server_url = server_url.rstrip("/")
         self.session = requests.Session()
         self.session_hash = str(uuid.uuid4())
