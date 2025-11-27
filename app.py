@@ -36,6 +36,24 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Tee stdout/stderr to output.txt while keeping console output
+class _Tee:
+    def __init__(self, *streams):
+        self.streams = streams
+    def write(self, data):
+        for s in self.streams:
+            s.write(data)
+            s.flush()
+    def flush(self):
+        for s in self.streams:
+            if hasattr(s, 'flush'):
+                s.flush()
+
+_log_file = open('output.txt', 'a', encoding='utf-8')
+sys.stdout = _Tee(sys.stdout, _log_file)
+sys.stderr = _Tee(sys.stderr, _log_file)
+
+
 ## utilties and class definition
 def is_image_extension(filename: str) -> bool:
     IMAGE_EXTS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', '.svg'}
