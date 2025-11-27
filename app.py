@@ -38,20 +38,52 @@ logger = logging.getLogger(__name__)
 
 # Tee stdout/stderr to output.txt while keeping console output
 class _Tee:
-    def __init__(self, *streams):
-        self.streams = streams
+    def __init__(self, primary, secondary):
+        self._primary = primary
+        self._secondary = secondary
+
     def write(self, data):
-        for s in self.streams:
-            s.write(data)
-            s.flush()
+        self._primary.write(data)
+        self._primary.flush()
+        try:
+            self._secondary.write(data)
+            self._secondary.flush()
+        except:
+            pass  # Don't crash if file write fails
+
     def flush(self):
-        for s in self.streams:
-            if hasattr(s, 'flush'):
-                s.flush()
+        self._primary.flush()
+        try:
+            self._secondary.flush()
+        except:
+            pass
+
+    def isatty(self):
+        return self._primary.isatty()
+
+    def fileno(self):
+        return self._primary.fileno()
+
+    @property
+    def encoding(self):
+        return self._primary.encoding
+
+    @property
+    def name(self):
+        return getattr(self._primary, 'name', '<tee>')
+
+    def readable(self):
+        return False
+
+    def writable(self):
+        return True
+
+    def seekable(self):
+        return False
 
 _log_file = open('output.txt', 'a', encoding='utf-8')
-sys.stdout = _Tee(sys.stdout, _log_file)
-sys.stderr = _Tee(sys.stderr, _log_file)
+sys.stdout = _Tee(sys.__stdout__, _log_file)
+sys.stderr = _Tee(sys.__stderr__, _log_file)
 
 
 ## utilties and class definition
