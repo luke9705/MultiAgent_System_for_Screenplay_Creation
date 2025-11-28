@@ -23,7 +23,7 @@ RUN pip install --no-cache-dir \
     openai \
     gradio \
     gradio_client \
-    duckduckgo-search \
+    ddgs \
     anthropic \
     httpx
 

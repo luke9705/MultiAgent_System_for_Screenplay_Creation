@@ -21,8 +21,8 @@ RUN pip install --no-cache-dir \
     gradio \
     numpy \
     pillow \
-    diffusers \
-    transformers \
+    diffusers==0.25.0 \
+    transformers==4.36.2 \
     accelerate \
     sentencepiece \
     imageio \
