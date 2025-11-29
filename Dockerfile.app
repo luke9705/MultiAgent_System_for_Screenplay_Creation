@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir \
     smolagents \
     "smolagents[audio]" \
     openai \
-    gradio \
+    "gradio>=5.0.0" \
     gradio_client \
     ddgs \
     anthropic \
