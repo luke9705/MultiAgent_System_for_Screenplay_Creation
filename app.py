@@ -391,9 +391,11 @@ def caption_image(img_path: str, prompt: str) -> str:
     Returns:
         str: A description of the image.
     """
-    client_2 = InferenceClientModel("google/gemma-3-27b-it", 
-                          provider="nebius", 
-                          api_key=os.getenv("NEBIUS_API_KEY"))
+    client_2 = OpenAIServerModel(
+        model_id="google/gemma-3-27b-it",
+        api_base="https://api.tokenfactory.us-central1.nebius.com/v1/",
+        api_key=os.getenv("NEBIUS_API_KEY"),
+    )
     
     with open(img_path, "rb") as f:
         encoded = base64.b64encode(f.read()).decode("utf-8")
@@ -418,9 +420,11 @@ def caption_image(img_path: str, prompt: str) -> str:
 class Agent:
     def __init__(self, ):
 
-        client = InferenceClientModel("Qwen/Qwen3-30B-A3B-Instruct-2507",
-                                      provider="nebius",
-                                      api_key=os.getenv("NEBIUS_API_KEY"))
+        client = OpenAIServerModel(
+            model_id="deepseek-ai/DeepSeek-V3-0324-fast",
+            api_base="https://api.tokenfactory.us-central1.nebius.com/v1/",
+            api_key=os.getenv("NEBIUS_API_KEY"),
+        )
 
         """client = OpenAIServerModel(
             model_id="claude-opus-4-20250514",
