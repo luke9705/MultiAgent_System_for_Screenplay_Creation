@@ -1,29 +1,31 @@
-import gradio as gr
-import os
-import base64
-import pandas as pd
-from PIL import Image
-from smolagents import CodeAgent, DuckDuckGoSearchTool, VisitWebpageTool, OpenAIServerModel, InferenceClientModel, tool
-from typing import Optional
-import requests
-from io import BytesIO
-import re
-from pathlib import Path
-import openai
-from openai import OpenAI
-import pdfplumber
-import numpy as np
-import textwrap
-import docx2txt
-from odf.opendocument import load as load_odt
 import asyncio
-import httpx
-import tempfile
-from concurrent.futures import ThreadPoolExecutor
-from audio_client_wrapper import generate_audio_gradio
-from video_client_wrapper import generate_text_to_video, generate_image_to_video
 import logging
+import os
 import sys
+import tempfile
+import textwrap
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from io import BytesIO
+from pathlib import Path
+from typing import Optional
+
+import docx2txt
+import gradio as gr
+import httpx
+import numpy as np
+import pandas as pd
+import pdfplumber
+import requests
+import torch
+from diffusers import Flux2KleinPipeline
+from odf.opendocument import load as load_odt
+from PIL import Image
+from smolagents import CodeAgent, DuckDuckGoSearchTool, TransformersModel, VisitWebpageTool, tool
+from transformers import AutoProcessor, Gemma3ForConditionalGeneration, pipeline
+
+from audio_client_wrapper import generate_audio_gradio
+from video_client_wrapper import generate_image_to_video, generate_text_to_video
 
 # Configure logging to save to file and show in console
 logging.basicConfig(
@@ -35,6 +37,14 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+MAIN_LLM_MODEL_ID = os.getenv("MAIN_LLM_MODEL_ID", "openai/gpt-oss-20b")
+VISION_MODEL_ID = os.getenv("VISION_MODEL_ID", "google/gemma-3-4b-it")
+TRANSCRIBE_MODEL_ID = os.getenv("TRANSCRIBE_MODEL_ID", "openai/whisper-small")
+IMAGE_MODEL_ID = os.getenv("IMAGE_MODEL_ID", "black-forest-labs/FLUX.2-klein-base-9B")
+MODEL_DTYPE = torch.bfloat16
+ASR_DTYPE = torch.float16
+CUDA_DEVICE = os.getenv("CUDA_DEVICE", "cuda")
 
 # Tee stdout/stderr to output.txt while keeping console output
 class _Tee:
@@ -81,9 +91,141 @@ class _Tee:
     def seekable(self):
         return False
 
+os.makedirs("output", exist_ok=True)
 _log_file = open('output/output.txt', 'a', encoding='utf-8')
 sys.stdout = _Tee(sys.__stdout__, _log_file)
 sys.stderr = _Tee(sys.__stderr__, _log_file)
+
+
+def require_cuda() -> None:
+    """Fail fast when the local-only runtime is started without CUDA."""
+    if not torch.cuda.is_available():
+        raise RuntimeError(
+            "CUDA GPU is required for the local model runtime. "
+            "Start this app on the target GPU host."
+        )
+
+
+class LocalModelRuntime:
+    """Owns all local inference models used by the main app."""
+
+    def __init__(self) -> None:
+        require_cuda()
+        logger.info("Loading local app models on %s", CUDA_DEVICE)
+
+        self._image_lock = threading.Lock()
+        self._vision_lock = threading.Lock()
+        self._asr_lock = threading.Lock()
+
+        self.llm = TransformersModel(
+            model_id=MAIN_LLM_MODEL_ID,
+            device_map="auto",
+            torch_dtype="auto",
+        )
+
+        self.image_pipe = None
+        self.vision_model = None
+        self.vision_processor = None
+        self.asr_pipe = None
+
+        logger.info("Main LLM loaded successfully; auxiliary models will load on demand")
+
+    def _get_image_pipe(self) -> Flux2KleinPipeline:
+        if self.image_pipe is None:
+            with self._image_lock:
+                if self.image_pipe is None:
+                    logger.info("Loading FLUX 2 Klein image pipeline")
+                    pipe = Flux2KleinPipeline.from_pretrained(
+                        IMAGE_MODEL_ID,
+                        torch_dtype=MODEL_DTYPE,
+                    )
+                    pipe.to(CUDA_DEVICE)
+                    self.image_pipe = pipe
+        return self.image_pipe
+
+    def _get_vision_stack(self) -> tuple[Gemma3ForConditionalGeneration, AutoProcessor]:
+        if self.vision_model is None or self.vision_processor is None:
+            with self._vision_lock:
+                if self.vision_model is None or self.vision_processor is None:
+                    logger.info("Loading Gemma vision model")
+                    self.vision_model = Gemma3ForConditionalGeneration.from_pretrained(
+                        VISION_MODEL_ID,
+                        torch_dtype=MODEL_DTYPE,
+                        device_map="auto",
+                    )
+                    self.vision_processor = AutoProcessor.from_pretrained(
+                        VISION_MODEL_ID,
+                        padding_side="left",
+                    )
+        return self.vision_model, self.vision_processor
+
+    def _get_asr_pipe(self):
+        if self.asr_pipe is None:
+            with self._asr_lock:
+                if self.asr_pipe is None:
+                    logger.info("Loading Whisper transcription pipeline")
+                    self.asr_pipe = pipeline(
+                        task="automatic-speech-recognition",
+                        model=TRANSCRIBE_MODEL_ID,
+                        torch_dtype=ASR_DTYPE,
+                        device=CUDA_DEVICE,
+                    )
+        return self.asr_pipe
+
+    def transcribe_audio(self, audio_path: str) -> str:
+        asr_pipe = self._get_asr_pipe()
+        result = asr_pipe(audio_path, return_timestamps=False)
+        return str(result.get("text", "")).strip()
+
+    def generate_image(self, prompt: str, neg_prompt: str) -> Image.Image:
+        image_pipe = self._get_image_pipe()
+        generator = torch.Generator(device=CUDA_DEVICE).manual_seed(torch.randint(0, 2**31 - 1, ()).item())
+        if neg_prompt:
+            logger.info("Ignoring neg_prompt for FLUX 2 Klein local generation; embeddings are not implemented")
+        output = image_pipe(
+            prompt=prompt,
+            num_inference_steps=30,
+            guidance_scale=4.0,
+            height=1024,
+            width=1024,
+            generator=generator,
+        )
+        return output.images[0].convert("RGB")
+
+    def caption_image(self, img_path: str, prompt: str) -> str:
+        vision_model, vision_processor = self._get_vision_stack()
+        image = Image.open(img_path).convert("RGB")
+        messages = [
+            {
+                "role": "system",
+                "content": [{"type": "text", "text": "You describe images precisely and concisely."}],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image", "image": image},
+                    {"type": "text", "text": prompt},
+                ],
+            },
+        ]
+        inputs = vision_processor.apply_chat_template(
+            messages,
+            add_generation_prompt=True,
+            tokenize=True,
+            return_dict=True,
+            return_tensors="pt",
+        ).to(vision_model.device)
+        input_len = inputs["input_ids"].shape[-1]
+        with torch.inference_mode():
+            output = vision_model.generate(
+                **inputs,
+                max_new_tokens=256,
+                do_sample=False,
+            )
+        return vision_processor.decode(output[0][input_len:], skip_special_tokens=True).strip()
+
+
+RUNTIME = LocalModelRuntime()
 
 
 ## utilties and class definition
@@ -203,23 +345,17 @@ def download_images(image_urls: str) -> list:
         wrapped.append(gr.Image(value=img))
     return wrapped
 
-@tool # since they gave us OpenAI API credits, we can keep using it
+@tool
 def transcribe_audio(audio_path: str) -> str:
     """
-    Transcribe audio file using OpenAI Whisper API.
+    Transcribe audio file using a local Whisper model.
     Args:
         audio_path: path to the audio file to be transcribed.
     Returns:
         str : Transcription of the audio.
     """
     try:
-        client = openai.Client(api_key=os.getenv("OPENAI_API_KEY"))
-        with open(audio_path, "rb") as audio:  # to modify path because it is arriving from gradio
-            transcript = client.audio.transcriptions.create(
-                file=audio,
-                model="whisper-1",
-                response_format="text",
-            )
+        transcript = RUNTIME.transcribe_audio(audio_path)
         print(transcript)
         return transcript
     except Exception as e:
@@ -229,35 +365,14 @@ def transcribe_audio(audio_path: str) -> str:
 @tool
 def generate_image(prompt: str, neg_prompt: str) -> Image.Image:
     """
-    Generate an image based on a text prompt using Flux Dev.
+    Generate an image based on a text prompt using a local FLUX 2 Klein pipeline.
     Args:
         prompt: The text prompt to generate the image from.
         neg_prompt: The negative prompt to avoid certain elements in the image.
     Returns:
         Image.Image: The generated image as a PIL Image object.
     """
-    client = OpenAI(base_url="https://api.studio.nebius.com/v1",
-                    api_key=os.environ.get("NEBIUS_API_KEY"),
-                    )
-
-    completion = client.images.generate(
-        model="black-forest-labs/flux-dev",
-        prompt=prompt,
-        response_format="b64_json",
-        extra_body={
-            "response_extension": "png",
-            "width": 1024,
-            "height": 1024,
-            "num_inference_steps": 30,
-            "seed": -1,
-            "negative_prompt": neg_prompt,
-        }
-    )
-    
-    image_data = base64.b64decode(completion.to_dict()['data'][0]['b64_json'])
-    image = BytesIO(image_data)
-    image = Image.open(image).convert("RGB") 
-
+    image = RUNTIME.generate_image(prompt, neg_prompt)
     return gr.Image(value=image, label="Generated Image")
 
 @tool
@@ -384,66 +499,21 @@ def generate_video_from_image(prompt: str, image_path: str, duration: float = 2.
 @tool
 def caption_image(img_path: str, prompt: str) -> str:
     """
-    Generate a caption for an image at the given path using Gemma3.
+    Generate a caption for an image at the given path using a local Gemma 3 vision-language model.
     Args:
         img_path: The file path to the image to be captioned.
         prompt: A text prompt describing what you want the model to focus on or ask about the image.
     Returns:
         str: A description of the image.
     """
-    client_2 = OpenAIServerModel(
-        model_id="google/gemma-3-27b-it",
-        api_base="https://api.tokenfactory.us-central1.nebius.com/v1/",
-        api_key=os.getenv("NEBIUS_API_KEY"),
-    )
-    
-    with open(img_path, "rb") as f:
-        encoded = base64.b64encode(f.read()).decode("utf-8")
-    data_uri = f"data:image/jpeg;base64,{encoded}"
-    messages = [{"role": "user", "content": [
-                    {
-                        "type": "text",
-                        "text": prompt,
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": data_uri
-                        }
-                    }
-                ]}]
-    resp = client_2(messages)
-    return resp.content 
+    return RUNTIME.caption_image(img_path, prompt)
     
 
 ## agent definition
 class Agent:
     def __init__(self, ):
-
-        client = OpenAIServerModel(
-            model_id="deepseek-ai/DeepSeek-V3-0324-fast",
-            api_base="https://api.tokenfactory.us-central1.nebius.com/v1/",
-            api_key=os.getenv("NEBIUS_API_KEY"),
-        )
-
-        """client = OpenAIServerModel(
-            model_id="claude-opus-4-20250514",
-            api_base="https://api.anthropic.com/v1/",
-            api_key=os.environ["ANTHROPIC_API_KEY"],
-        )"""
-
-        """client = OpenAIServerModel(
-        model_id= "gpt-4.1-2025-04-14", #"gpt-5-nano-2025-08-07", #gpt-5-mini-2025-08-07"
-        api_base="https://api.openai.com/v1",
-        api_key=os.environ["OPENAI_API_KEY"],
-        )"""
-        """from smolagents import TransformersModel
-
-        client = TransformersModel(model_id="google/gemma-3-1b-it",
-                                   device_map="cuda",)"""
-
         self.agent = CodeAgent(
-            model=client,
+            model=RUNTIME.llm,
             tools=[DuckDuckGoSearchTool(max_results=5),
                    VisitWebpageTool(max_output_length=20000),
                    generate_image,

@@ -1,5 +1,5 @@
 # Dockerfile for Main App
-FROM python:3.11-slim
+FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime
 
 WORKDIR /app
 
@@ -12,20 +12,21 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install PyTorch CPU version (main app doesn't need GPU)
-RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
-
 # Install core dependencies
 RUN pip install --no-cache-dir \
+    --upgrade pip \
     huggingface_hub \
-    smolagents \
-    "smolagents[audio]" \
-    openai \
+    git+https://github.com/huggingface/diffusers.git \
+    kernels \
+    "smolagents[transformers]" \
+    transformers \
+    accelerate \
     "gradio>=5.0.0" \
     gradio_client \
     ddgs \
-    anthropic \
-    httpx
+    httpx \
+    sentencepiece \
+    safetensors
 
 # Install document processing dependencies
 RUN pip install --no-cache-dir \

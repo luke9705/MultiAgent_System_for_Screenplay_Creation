@@ -17,13 +17,13 @@ The screenplay used in the video as sample is available [here](https://www.studi
 
 At its heart:
 
-* Qwen3-32B serves as the primary orchestrating agent, coordinating workflows and managing high-level reasoning across the system.
-* Gemma-3-27B-IT acts as a specialized assistant for multimodal tasks, supporting both text and audio inputs to refine narrative elements and prepare them for downstream generation.
+* GPT-OSS 20B serves as the primary orchestrating agent, coordinating workflows and managing high-level reasoning across the system through a fully local `transformers` runtime.
+* Gemma-3-4B-IT acts as the local multimodal assistant for image-aware tasks such as captioning and visual analysis.
 
 For media generation, Scriptura integrates:
 
-* MusicGen models (per the AudioCraft MusicGen specification), deployed via Hugging Face Spaces, enabling the agent to produce original soundtracks and sound effects from text prompts or combined text + audio samples.
-* FLUX (black-forest-labs/FLUX.1-dev) for on-the-fly image creation, ideal for storyboards, concept art, and visual references that seamlessly tie into the narrative flow.
+* MusicGen models (per the AudioCraft MusicGen specification), deployed as a local service, enabling the agent to produce original soundtracks and sound effects from text prompts or combined text + audio samples.
+* FLUX 2 Klein for on-the-fly local image creation, ideal for storyboards, concept art, and visual references that seamlessly tie into the narrative flow.
 
 Optionally, Scriptura can query external sources (e.g., via a DuckDuckGo API integration) to pull in reference scripts, sound samples, or research materials, ensuring that every draft is not only creatively rich but also contextually informed.
 
@@ -39,17 +39,17 @@ Scriptura provides a rich set of agents and tools to cover the full screenplay p
 
 - **Multimodal Ingestion**  
   - Supports PDF, DOCX, ODT, TXT and image uploads  
-  - Transcribes audio files using OpenAI Whisper  
+  - Transcribes audio files using a local Whisper model  
 
 - **Image Generation**  
-  - On-the-fly storyboard and concept art creation via FLUX (black-forest-labs/FLUX.1-dev)  
+  - On-the-fly storyboard and concept art creation via local FLUX 2 Klein  
 
 - **Audio Generation**  
   - Produces original soundtracks and SFX with MusicGen (AudioCraft spec)  
   - Allows sample-conditioned audio generation  
 
 - **Captioning & Metadata**  
-  - Auto-generates captions and descriptions for images using Gemma-3-27B-IT  
+  - Auto-generates captions and descriptions for images using local Gemma-3-4B-IT  
 
 - **Optional Web Research**  
   - Queries DuckDuckGo to fetch example scripts, sound samples, or contextual references  
@@ -70,13 +70,13 @@ Here’s an example flow demonstrating how you could use the agent.
 .
 ├── app.py               # Entry point: defines Gradio interface and routing logic
 ├── system_prompt.txt    # System-level prompt template for the CodeAgent
-├── requirements.txt     # Python dependencies (Gradio, SmolAgents, OpenAI, etc.)
+├── requirements.txt     # Python dependencies (Gradio, SmolAgents, transformers, diffusers, etc.)
 └── README.md            # Project documentation
 ```
 
 * **app.py**
 
-  * **Agent** class: loads Qwen3-32B model, registers all tools
+  * **Agent** class: loads GPT-OSS 20B plus local image/caption/transcription runtimes, then registers all tools
   * **respond()**: orchestrates between Gradio inputs and CodeAgent
   * Decorated `@tool` functions for image download, media generation, transcription, captioning
   * Gradio `ChatInterface` setup with text/file support and “Enable web search” toggle
@@ -87,21 +87,22 @@ Here’s an example flow demonstrating how you could use the agent.
 
 * **requirements.txt**
 
-  * Lists all required libraries (Gradio, SmolAgents, OpenAI, HuggingFace, PDFPlumber, etc.)
+  * Lists all required libraries (Gradio, SmolAgents, transformers, diffusers, Hugging Face, PDFPlumber, etc.)
 
 ---
 
 ## Deployment & Access
 
-### Hugging Face Spaces
+### Local GPU Deployment
 
-1. Include `app.py`, `system_prompt.txt`, and `requirements.txt` in the root of your Space.  
-2. Configure `OPENAI_API_KEY` and `HF_TOKEN` as Secrets in your Space’s settings.  
-3. Make sure the Space is set to use **Python 3.10 or higher**.  
-4. Select **Gradio** as the SDK (version 5.32.1).  
-5. Pin or share the Space link to collaborate with your team.
+Scriptura now targets a local Linux Docker deployment with NVIDIA GPUs:
 
-> **Note:** If you choose to clone this repository and run it locally, make sure to set your own `OPENAI_API_KEY` and `HF_TOKEN` environment variables before launching.
+1. Set `HF_TOKEN` and the desired model IDs in `.env`  
+2. Use Docker Compose to launch the app, audio, and video services together  
+3. Keep host GPU 0 for the main app and host GPU 1 for audio/video services  
+4. Follow the full setup instructions in `README_DOCKER.md`
+
+> **Note:** The current runtime is GPU-only and is not intended for Hugging Face Spaces or CPU-only hosts.
 
 ---
 ## Use Cases
@@ -124,7 +125,7 @@ Here’s an example flow demonstrating how you could use the agent.
 **Digital Humanities Course**  
 * Demonstrate how to build a text-mining tool applied to performing arts, combining NLP, image, and audio pipelines.  
 * Allow students to analyze real scripts, generate abstracts, scene maps, and visual/audio prototypes in a hands-on environment.  
-* Explore Transformer models (DeepSeek), OCR, speech-to-text, and AI-driven media generation as part of the curriculum.
+* Explore local transformer models, OCR, speech-to-text, and AI-driven media generation as part of the curriculum.
 
 ---
 
@@ -139,13 +140,13 @@ Here’s an example flow demonstrating how you could use the agent.
 ## Sources
 The following libraries, models, and tools power Scriptura’s agents and multimodal capabilities:
 
-- **Qwen3-32B** – primary orchestrating LLM for high-level reasoning and workflow management  
+- **GPT-OSS 20B** – primary orchestrating LLM for high-level reasoning and workflow management  
 - **Gradio** – interactive web UI framework  
 - **smolagents** – lightweight multi-agent orchestrator from Hugging Face  
 - **huggingface_hub** – model & dataset management  
 - **duckduckgo-search** – optional web research integration  
-- **openai** – Whisper transcription, GPT-based reasoning  
-- **anthropic** – Claude-style LLM support  
+- **transformers** – local LLM, multimodal, and Whisper inference  
+- **diffusers** – local FLUX 2 Klein image generation  
 - **pdfplumber** – PDF text extraction  
 - **docx2txt** – DOCX parsing  
 - **odfpy** – ODT parsing  
@@ -154,5 +155,5 @@ The following libraries, models, and tools power Scriptura’s agents and multim
 - **requests** – HTTP client for external APIs  
 - **numpy** – numerical operations  
 - **MusicGen (AudioCraft)** – soundtrack and SFX generation  
-- **FLUX (black-forest-labs/FLUX.1-dev)** – on-the-fly image generation  
-- **Gemma-3-27B-IT** – multimodal captioning and metadata  
+- **FLUX 2 Klein** – on-the-fly image generation  
+- **Gemma-3-4B-IT** – multimodal captioning and metadata  
